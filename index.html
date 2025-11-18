@@ -117,6 +117,37 @@
       animation: pianoFloat 6s ease-in-out infinite alternate;
     }
 
+    .drum-controls {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .drum-button {
+      font-size: 11px;
+      text-transform: lowercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.02);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .drum-button:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    .drum-button.active {
+      background: #111111;
+      color: #f7f7f7;
+      border-color: #111111;
+      transform: translateY(1px);
+    }
+
     @keyframes pianoFloat {
       0% { transform: translateY(0); }
       100% { transform: translateY(-3px); }
@@ -265,6 +296,12 @@
             <button class="key black asharp" data-note="A#1"></button>
           </div>
         </div>
+      </div>
+      <div class="drum-controls">
+        <button class="drum-button" data-part="kick">kick</button>
+        <button class="drum-button" data-part="snare">snare</button>
+        <button class="drum-button" data-part="hats">hats</button>
+        <button class="drum-button" data-part="perc">perc</button>
       </div>
       <div class="ringer-note"><em>ringer must be on to play</em></div>
 
@@ -443,6 +480,93 @@
       let currentVoice = null; // { osc, gain }
       const glideTime = 0.08; // ~80ms glide between notes
 
+      // Drum loop setup: 4 parts (kick, snare, hats, perc)
+      const drumParts = ["kick", "snare", "hats", "perc"];
+      const drumFiles = {
+        kick: "sounds/Kick.wav",
+        snare: "sounds/Snare.wav",
+        hats: "sounds/Hats.wav",
+        perc: "sounds/Perc.wav"
+      };
+
+      let drumLoaded = false;
+      let drumLoading = false;
+      const drumBuffers = {};
+      const drumGains = {};
+      const drumSources = {};
+
+      async function loadDrumBuffers(ctx) {
+        if (drumLoaded || drumLoading) return;
+        drumLoading = true;
+        try {
+          for (const part of drumParts) {
+            const url = drumFiles[part];
+            const res = await fetch(url);
+            const arr = await res.arrayBuffer();
+            const buf = await ctx.decodeAudioData(arr);
+            drumBuffers[part] = buf;
+          }
+          drumLoaded = true;
+        } catch (e) {
+          console.warn("Error loading drum loops:", e);
+        } finally {
+          drumLoading = false;
+        }
+      }
+
+      async function ensureDrumsStarted() {
+        const ctx = getAudio();
+        if (!ctx) return;
+        await loadDrumBuffers(ctx);
+        // If we already created sources, nothing else to do.
+        if (Object.keys(drumSources).length) return;
+
+        const startTime = ctx.currentTime + 0.05;
+        for (const part of drumParts) {
+          const buffer = drumBuffers[part];
+          if (!buffer) continue;
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          src.loop = true;
+
+          const gain = ctx.createGain();
+          // start muted by default; buttons will un-mute
+          gain.gain.setValueAtTime(0, startTime);
+
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(startTime);
+
+          drumSources[part] = src;
+          drumGains[part] = gain;
+        }
+      }
+
+      async function toggleDrumPart(part, buttonEl) {
+        await ensureDrumsStarted();
+        const ctx = getAudio();
+        if (!ctx) return;
+
+        const gain = drumGains[part];
+        if (!gain) return;
+
+        const now = ctx.currentTime;
+        const isOn = (gain.gain.value || 0) > 0.001;
+        const target = isOn ? 0 : 1;
+
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(target, now + 0.03);
+
+        if (buttonEl) {
+          if (target > 0) {
+            buttonEl.classList.add("active");
+          } else {
+            buttonEl.classList.remove("active");
+          }
+        }
+      }
+
       function getAudio() {
         initAudioCtx();
         if (!audioCtx) return null;
@@ -513,6 +637,15 @@
       const piano = document.querySelector(".piano");
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
+
+      const drumButtons = document.querySelectorAll(".drum-button");
+      drumButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const part = btn.getAttribute("data-part");
+          if (!part) return;
+          toggleDrumPart(part, btn);
+        });
+      });
 
       let pointerDown = false;
       let activeTouchId = null;
