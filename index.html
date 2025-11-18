@@ -376,7 +376,7 @@
     </div>
   </div>
 
-    <script>
+      <script>
     // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
     let iosAudioUnlocked = false;
     let audioCtx = null;
@@ -506,12 +506,18 @@
       }
     });
 
-    // Web Audio saw synth C1–C2 with glide + sliding, iOS-safe, real durations
+    // Synth / drums / sequencer
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
         return;
       }
+
+      const BPM = 130;
+      const BEAT_DUR = 60 / BPM;    // one beat in seconds
+      const LOOP_BEATS = 16;        // 4 bars of 4/4
+      const LOOP_STEPS = 64;        // 16ths across 4 bars
+      const STEP_LEN = (LOOP_BEATS * BEAT_DUR) / LOOP_STEPS; // one 16th in seconds
 
       // Note → frequency map (C1–C2) with sharps
       const noteFreq = {
@@ -534,7 +540,7 @@
       const keyboardOrder = [
         "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
       ];
-      const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"]; // A major scale degrees in this range
+      const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"];
       const aMajorSet = new Set(aMajorNotes);
       const scaleMap = {};
 
@@ -570,318 +576,23 @@
         return curve;
       }
 
-      let currentVoice = null; // { osc, gain }
-      const glideTime = 0.08; // ~80ms glide between notes
-
-      // Drum loop setup: 4 parts (kick, snare, hats, perc)
-      const drumParts = ["kick", "snare", "hats", "perc"];
-      const drumFiles = {
-        kick: "sounds/Kick.wav",
-        snare: "sounds/Snare.wav",
-        hats: "sounds/Hats.wav",
-        perc: "sounds/Perc.wav"
-      };
-
-      let drumLoaded = false;
-      let drumLoading = false;
-      const drumBuffers = {};
-      const drumGains = {};
-      const drumSources = {};
-      let drumLoopDuration = null;
-
-      // --- Looper state ---
-      let loopStartTime = null;
-      let loopEvents = []; // { note, start, end, duration, time }
-      let isRecording = false;
-      let isPlayingPattern = false;
-      let seqTimer = null;
-      let lastLoopPos = 0;
-      const defaultLoopLength = (4 * 4 * 60) / 130; // 4 bars at 130 BPM
-
-      let stepTimer = null;
-      let lastStepIndex = -1;
-      let stepDots = [];
-      let recordingLastNote = null;
-
-      async function loadDrumBuffers(ctx) {
-        if (drumLoaded || drumLoading) return;
-        drumLoading = true;
-        try {
-          for (const part of drumParts) {
-            const url = drumFiles[part];
-            const res = await fetch(url);
-            const arr = await res.arrayBuffer();
-            const buf = await ctx.decodeAudioData(arr);
-            drumBuffers[part] = buf;
-          }
-          drumLoaded = true;
-        } catch (e) {
-          console.warn("Error loading drum loops:", e);
-        } finally {
-          drumLoading = false;
-        }
-      }
-
-      async function ensureDrumsStarted() {
-        const ctx = getAudio();
-        if (!ctx) return;
-        await loadDrumBuffers(ctx);
-        if (Object.keys(drumSources).length) return;
-
-        const startTime = ctx.currentTime + 0.05;
-        loopStartTime = startTime;
-        for (const part of drumParts) {
-          const buffer = drumBuffers[part];
-          if (!buffer) continue;
-          const src = ctx.createBufferSource();
-
-          if (drumLoopDuration === null) {
-            drumLoopDuration = buffer.duration;
-          }
-
-          src.buffer = buffer;
-          src.loop = true;
-          src.loopStart = 0;
-          src.loopEnd = drumLoopDuration;
-
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(0, startTime); // start muted
-
-          src.connect(gain);
-          gain.connect(ctx.destination);
-          src.start(startTime);
-
-          drumSources[part] = src;
-          drumGains[part] = gain;
-        }
-      }
-
-      async function toggleDrumPart(part, buttonEl) {
-        await ensureDrumsStarted();
-        const ctx = getAudio();
-        if (!ctx) return;
-
-        const gain = drumGains[part];
-        if (!gain) return;
-
-        const now = ctx.currentTime;
-        const isOn = (gain.gain.value || 0) > 0.001;
-        const target = isOn ? 0 : 0.375; // ~50% of the previous 0.75
-
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.linearRampToValueAtTime(target, now + 0.03);
-
-        if (buttonEl) {
-          if (target > 0) {
-            buttonEl.classList.add("active");
-          } else {
-            buttonEl.classList.remove("active");
-          }
-        }
-      }
-
-      // --- Loop helpers ---
-      function getLoopLength() {
-        if (drumLoopDuration && drumLoopDuration > 0) return drumLoopDuration;
-        return defaultLoopLength;
-      }
-
-      function getLoopPosition(ctx) {
-        const len = getLoopLength();
-        if (!loopStartTime) {
-          loopStartTime = ctx.currentTime;
-        }
-        const t = ctx.currentTime - loopStartTime;
-        const pos = ((t % len) + len) % len;
-        return pos;
-      }
-
-      function quantizeNowTo16th() {
-        const ctx = getAudio();
-        if (!ctx) return 0;
-        const len = getLoopLength();
-        if (!len) return 0;
-        const pos = getLoopPosition(ctx);
-        const sixteenth = len / 64; // 64 sixteenths over 4 bars
-        let q = Math.round(pos / sixteenth) * sixteenth;
-        if (q >= len) q = 0;
-        return q;
-      }
-
-      // --- Recording note ON/OFF with duration ---
-      function recordNoteOn(noteName) {
-        if (!isRecording) return;
-        const start = quantizeNowTo16th();
-        const evt = {
-          note: noteName,
-          start,
-          end: null,
-          duration: null,
-          time: start
-        };
-        loopEvents.push(evt);
-        recordingLastNote = noteName;
-      }
-
-      function recordNoteOff(noteName) {
-        if (!isRecording) return;
-        const len = getLoopLength();
-        if (!len) return;
-        const end = quantizeNowTo16th();
-
-        for (let i = loopEvents.length - 1; i >= 0; i--) {
-          const evt = loopEvents[i];
-          if (evt.note === noteName && evt.end == null) {
-            evt.end = end;
-            let dur = end - evt.start;
-            if (dur <= 0) dur += len; // wrap across loop
-            evt.duration = dur;
-            break;
-          }
-        }
-
-        if (recordingLastNote === noteName) {
-          recordingLastNote = null;
-        }
-      }
-
-      function triggerSeqNote(noteName, duration) {
-        const mapped = scaleMap[noteName] || noteName;
-        const freq = noteFreq[mapped];
-        if (!freq) return;
-        const ctx = getAudio();
-        if (!ctx) return;
-        const now = ctx.currentTime;
-
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const distortion = ctx.createWaveShaper();
-
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(freq, now);
-
-        distortion.curve = createDistortionCurve(4);
-        distortion.oversample = "2x";
-
-        const dur = Math.max(0.08, duration || 0.6);
-        const attack = 0.02;
-        const decay = 0.06;
-        const sustainLevel = 0.22;
-        const release = 0.08;
-        const sustainTime = Math.max(0, dur - (attack + decay + release));
-
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.23, now + attack);
-        gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
-        gain.gain.setValueAtTime(sustainLevel, now + attack + decay + sustainTime);
-        gain.gain.linearRampToValueAtTime(0, now + dur);
-
-        osc.connect(distortion);
-        distortion.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(now);
-        osc.stop(now + dur + 0.05);
-      }
-
-      function startPatternPlayback() {
-        const events = loopEvents.filter(e => e.duration && e.duration > 0);
-        if (!events.length || isPlayingPattern) return;
-        const ctx = getAudio();
-        if (!ctx) return;
-        isPlayingPattern = true;
-        startStepTimer();
-        lastLoopPos = getLoopPosition(ctx);
-        if (seqTimer) clearInterval(seqTimer);
-
-        seqTimer = setInterval(() => {
-          const c = getAudio();
-          if (!c || !events.length) return;
-          const len = getLoopLength();
-          const prev = lastLoopPos;
-          const pos = getLoopPosition(c);
-          lastLoopPos = pos;
-          const wrapped = pos < prev;
-
-          events.forEach((evt) => {
-            const t = evt.time;
-            let hit = false;
-            if (wrapped) {
-              if (t >= prev || t <= pos) hit = true;
-            } else {
-              if (t > prev && t <= pos) hit = true;
-            }
-            if (hit) {
-              triggerSeqNote(evt.note, evt.duration);
-            }
-          });
-        }, 30);
-      }
-
-      function stopPatternPlayback() {
-        isPlayingPattern = false;
-        if (seqTimer) {
-          clearInterval(seqTimer);
-          seqTimer = null;
-        }
-        if (!isRecording) {
-          stopStepTimer();
-        }
-      }
-
-      // 16-step quarter-note visual over 4 bars
-      function startStepTimer() {
-        const ctx = getAudio();
-        if (!ctx) return;
-        if (stepTimer) return;
-        const len = getLoopLength();
-        const stepLength = len / 16; // each step = 1 quarter note
-        stepTimer = setInterval(() => {
-          const c = getAudio();
-          if (!c) return;
-          const pos = getLoopPosition(c);
-          const stepIndex = Math.floor(pos / stepLength) % 16;
-          if (stepIndex === lastStepIndex) return;
-          lastStepIndex = stepIndex;
-          if (stepDots.length) {
-            stepDots.forEach((dot, idx) => {
-              if (idx === stepIndex) {
-                dot.classList.add("active");
-              } else {
-                dot.classList.remove("active");
-              }
-            });
-          }
-        }, 30);
-      }
-
-      function stopStepTimer() {
-        if (stepTimer) {
-          clearInterval(stepTimer);
-          stepTimer = null;
-        }
-        lastStepIndex = -1;
-        if (stepDots.length) {
-          stepDots.forEach((dot) => dot.classList.remove("active"));
-        }
-      }
-
       function getAudio() {
         initAudioCtx();
         if (!audioCtx) return null;
         if (audioCtx.state !== "running") {
           try {
             audioCtx.resume();
-          } catch (e) {
-            // ignore resume errors
-          }
+          } catch (e) {}
         }
         return audioCtx;
       }
 
-      function startOrGlideToNote(note) {
-        const mapped = scaleMap[note] || note;
+      // Live synth voice for playing
+      let currentVoice = null; // { osc, gain }
+      const glideTime = 0.08;
+
+      function startOrGlideToNote(rawNote) {
+        const mapped = scaleMap[rawNote] || rawNote;
         const freq = noteFreq[mapped];
         if (!freq) return;
 
@@ -921,7 +632,6 @@
 
       function stopCurrentVoice() {
         if (!currentVoice) return;
-
         const ctx = getAudio();
         if (!ctx) return;
         const now = ctx.currentTime;
@@ -935,6 +645,250 @@
         currentVoice = null;
       }
 
+      // Drum loops
+      const drumParts = ["kick", "snare", "hats", "perc"];
+      const drumFiles = {
+        kick: "sounds/Kick.wav",
+        snare: "sounds/Snare.wav",
+        hats: "sounds/Hats.wav",
+        perc: "sounds/Perc.wav"
+      };
+
+      let drumLoaded = false;
+      let drumLoading = false;
+      const drumBuffers = {};
+      const drumGains = {};
+      const drumSources = {};
+
+      async function loadDrumBuffers(ctx) {
+        if (drumLoaded || drumLoading) return;
+        drumLoading = true;
+        try {
+          for (const part of drumParts) {
+            const url = drumFiles[part];
+            const res = await fetch(url);
+            const arr = await res.arrayBuffer();
+            const buf = await ctx.decodeAudioData(arr);
+            drumBuffers[part] = buf;
+          }
+          drumLoaded = true;
+        } catch (e) {
+          console.warn("Error loading drum loops:", e);
+        } finally {
+          drumLoading = false;
+        }
+      }
+
+      async function ensureDrumsStarted() {
+        const ctx = getAudio();
+        if (!ctx) return;
+        await loadDrumBuffers(ctx);
+        if (Object.keys(drumSources).length) return;
+
+        const startTime = ctx.currentTime + 0.05;
+        for (const part of drumParts) {
+          const buffer = drumBuffers[part];
+          if (!buffer) continue;
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          src.loop = true;
+
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0, startTime); // start muted
+
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(startTime);
+
+          drumSources[part] = src;
+          drumGains[part] = gain;
+        }
+      }
+
+      async function toggleDrumPart(part, buttonEl) {
+        await ensureDrumsStarted();
+        const ctx = getAudio();
+        if (!ctx) return;
+
+        const gain = drumGains[part];
+        if (!gain) return;
+
+        const now = ctx.currentTime;
+        const isOn = (gain.gain.value || 0) > 0.001;
+        const target = isOn ? 0 : 0.375; // ~50% of old 0.75
+
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(target, now + 0.03);
+
+        if (buttonEl) {
+          if (target > 0) {
+            buttonEl.classList.add("active");
+          } else {
+            buttonEl.classList.remove("active");
+          }
+        }
+      }
+
+      // Sequencer grid: 64 steps (16ths)
+      let grid = Array.from({ length: LOOP_STEPS }, () => []);
+      let pendingNotes = {}; // note -> { startStep }
+
+      // Transport for steps + visual bar
+      let stepDots = [];
+      let stepTimer = null;
+      let currentStep = 0;
+      let nextStepTime = 0;
+      let transportStartTime = null;
+
+      function triggerSeqNote(noteName, durationSeconds, startTime) {
+        const mapped = scaleMap[noteName] || noteName;
+        const freq = noteFreq[mapped];
+        if (!freq) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+
+        const t0 = Math.max(startTime, ctx.currentTime);
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const distortion = ctx.createWaveShaper();
+
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(freq, t0);
+
+        distortion.curve = createDistortionCurve(4);
+        distortion.oversample = "2x";
+
+        const attack = 0.02;
+        const decay = 0.06;
+        const sustainLevel = 0.22;
+        const total = Math.max(0.08, durationSeconds);
+        const release = 0.08;
+        const sustainTime = Math.max(0, total - (attack + decay + release));
+
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.23, t0 + attack);
+        gain.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + decay);
+        gain.gain.setValueAtTime(sustainLevel, t0 + attack + decay + sustainTime);
+        gain.gain.linearRampToValueAtTime(0, t0 + total);
+
+        osc.connect(distortion);
+        distortion.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t0);
+        osc.stop(t0 + total + 0.05);
+      }
+
+      function startTransport(startAt) {
+        const ctx = getAudio();
+        if (!ctx) return;
+        transportStartTime = startAt;
+        currentStep = 0;
+        nextStepTime = startAt;
+        if (stepTimer) clearInterval(stepTimer);
+
+        stepTimer = setInterval(() => {
+          const c = getAudio();
+          if (!c) return;
+          const now = c.currentTime;
+          const lookahead = 0.1;
+
+          while (nextStepTime <= now + lookahead) {
+            const stepIndex = currentStep;
+
+            // quarter-note indicator: 4 steps per dot (64 steps / 16 dots)
+            if (stepDots.length) {
+              const quarterIndex = Math.floor(stepIndex / 4); // 0..15
+              stepDots.forEach((dot, idx) => {
+                if (idx === quarterIndex) {
+                  dot.classList.add("active");
+                } else {
+                  dot.classList.remove("active");
+                }
+              });
+            }
+
+            // playback
+            if (recState === "playing" && grid[stepIndex].length) {
+              const when = nextStepTime;
+              grid[stepIndex].forEach(evt => {
+                triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, when);
+              });
+            }
+
+            currentStep = (currentStep + 1) % LOOP_STEPS;
+            nextStepTime += STEP_LEN;
+          }
+        }, 25);
+      }
+
+      function stopTransport() {
+        if (stepTimer) {
+          clearInterval(stepTimer);
+          stepTimer = null;
+        }
+        transportStartTime = null;
+        if (stepDots.length) {
+          stepDots.forEach(dot => dot.classList.remove("active"));
+        }
+      }
+
+      // Recording state
+      let recState = "idle";   // "idle" | "count-in" | "recording" | "playing"
+      let recStartTime = null;
+      let recEndTime = null;
+      let currentRecordedNote = null; // mapped note currently down
+
+      function recordNoteOn(note) {
+        if (recState !== "recording") return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        if (now < recStartTime || now > recEndTime) return;
+
+        const rel = now - recStartTime;
+        let step = Math.round(rel / STEP_LEN);
+        if (step < 0) step = 0;
+        if (step >= LOOP_STEPS) step = LOOP_STEPS - 1;
+
+        pendingNotes[note] = { startStep: step };
+      }
+
+      function recordNoteOff(note) {
+        if (recState !== "recording") return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        const data = pendingNotes[note];
+        if (!data) return;
+
+        const now = ctx.currentTime;
+        const rel = now - recStartTime;
+        let endStep = Math.round(rel / STEP_LEN);
+
+        if (endStep <= data.startStep) endStep = data.startStep + 1;
+        if (endStep > LOOP_STEPS) endStep = LOOP_STEPS;
+
+        const lengthSteps = endStep - data.startStep;
+        if (lengthSteps > 0) {
+          grid[data.startStep].push({ note, lengthSteps });
+        }
+        delete pendingNotes[note];
+      }
+
+      function finalizeRecording() {
+        // Close any held notes at the end of the loop
+        Object.entries(pendingNotes).forEach(([note, data]) => {
+          const lengthSteps = LOOP_STEPS - data.startStep;
+          if (lengthSteps > 0) {
+            grid[data.startStep].push({ note, lengthSteps });
+          }
+        });
+        pendingNotes = {};
+      }
+
+      // --- DOM wiring ---
       const piano = document.querySelector(".piano");
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
@@ -964,41 +918,66 @@
           const ctx = getAudio();
           if (!ctx) return;
 
-          if (!isRecording && !isPlayingPattern) {
-            // start fresh recording
-            isRecording = true;
-            loopEvents = [];
-            recordingLastNote = null;
-            startStepTimer();
-            recordBtn.classList.add("recording");
-            recordBtn.classList.remove("looping");
-            recordBtn.textContent = "rec*";
-          } else if (isRecording) {
-            // stop recording & start playback if we have notes
-            isRecording = false;
-            recordingLastNote = null;
-            recordBtn.classList.remove("recording");
-            const events = loopEvents.filter(e => e.duration && e.duration > 0);
-            if (events.length) {
-              startPatternPlayback();
-              recordBtn.classList.add("looping");
-              recordBtn.textContent = "looping";
-            } else {
-              stopPatternPlayback();
-              recordBtn.classList.remove("looping");
-              recordBtn.textContent = "rec";
-              stopStepTimer();
-            }
-          } else if (!isRecording && isPlayingPattern) {
-            // stop looping & reset
-            stopPatternPlayback();
-            recordBtn.classList.remove("looping");
+          // If we are mid count-in / recording / playing → cancel back to idle
+          if (recState === "count-in" || recState === "recording" || recState === "playing") {
+            recState = "idle";
+            finalizeRecording();
+            stopTransport();
+            grid = Array.from({ length: LOOP_STEPS }, () => []);
+            pendingNotes = {};
+            currentRecordedNote = null;
+            recordBtn.classList.remove("recording", "looping");
             recordBtn.textContent = "rec";
-            stopStepTimer();
+            return;
           }
+
+          // Start a fresh pass: 4-beat count-in, then record 4 bars, then loop
+          ensureDrumsStarted();
+          grid = Array.from({ length: LOOP_STEPS }, () => []);
+          pendingNotes = {};
+          currentRecordedNote = null;
+
+          const now = ctx.currentTime;
+          const baseTime = now + 0.3; // tiny lead-in so scheduling feels tight
+
+          const countInBeats = 4;
+          const recordBeats = LOOP_BEATS; // 16
+          const countInDur = countInBeats * BEAT_DUR;
+          const recordDur = recordBeats * BEAT_DUR;
+
+          recStartTime = baseTime + countInDur;
+          recEndTime = recStartTime + recordDur;
+
+          recState = "count-in";
+          recordBtn.classList.add("recording");
+          recordBtn.classList.remove("looping");
+          recordBtn.textContent = "count-in";
+
+          // Start transport now, so bar runs continuous through count-in & recording & playback
+          startTransport(baseTime);
+
+          // Switch into "recording" after count-in
+          const toRecordMs = Math.max(0, (recStartTime - ctx.currentTime) * 1000);
+          setTimeout(() => {
+            if (recState !== "count-in") return;
+            recState = "recording";
+            recordBtn.textContent = "rec*";
+          }, toRecordMs);
+
+          // End recording after 4 bars and start looping
+          const toEndMs = Math.max(0, (recEndTime - ctx.currentTime) * 1000);
+          setTimeout(() => {
+            if (recState !== "recording") return;
+            recState = "playing";
+            finalizeRecording();
+            recordBtn.classList.remove("recording");
+            recordBtn.classList.add("looping");
+            recordBtn.textContent = "looping";
+          }, toEndMs);
         });
       }
 
+      // Pointer/touch interaction + recording hooks
       let pointerDown = false;
       let activeTouchId = null;
       let activeKeyEl = null;
@@ -1022,28 +1001,31 @@
         return target.closest ? target.closest(".key[data-note]") : null;
       }
 
-      // Mouse logic: click + slide between keys, with recording
+      // Mouse
       keys.forEach((key) => {
         key.addEventListener("mousedown", (e) => {
           e.preventDefault();
           pointerDown = true;
-          const note = key.getAttribute("data-note");
+          const rawNote = key.getAttribute("data-note");
+          if (!rawNote) return;
+          const mapped = scaleMap[rawNote] || rawNote;
+          currentRecordedNote = mapped;
+
           setActiveKey(key);
-          if (isRecording && note) {
-            recordNoteOff(recordingLastNote); // just in case
-            recordNoteOn(note);
+          if (recState === "recording") {
+            recordNoteOn(mapped);
           }
-          startOrGlideToNote(note);
+          startOrGlideToNote(rawNote);
         });
       });
 
       window.addEventListener("mouseup", () => {
         if (!pointerDown) return;
         pointerDown = false;
-        if (isRecording && recordingLastNote) {
-          recordNoteOff(recordingLastNote);
+        if (recState === "recording" && currentRecordedNote) {
+          recordNoteOff(currentRecordedNote);
         }
-        recordingLastNote = null;
+        currentRecordedNote = null;
         setActiveKey(null);
         stopCurrentVoice();
       });
@@ -1053,23 +1035,25 @@
         const el = document.elementFromPoint(e.clientX, e.clientY);
         const key = getKeyFromTarget(el);
         if (!key) return;
-        const note = key.getAttribute("data-note");
-        if (!note) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
 
-        if (note !== recordingLastNote) {
-          if (isRecording && recordingLastNote) {
-            recordNoteOff(recordingLastNote);
+        if (mapped !== currentRecordedNote) {
+          if (recState === "recording" && currentRecordedNote) {
+            recordNoteOff(currentRecordedNote);
           }
-          if (isRecording) {
-            recordNoteOn(note);
+          if (recState === "recording") {
+            recordNoteOn(mapped);
           }
+          currentRecordedNote = mapped;
         }
 
         setActiveKey(key);
-        startOrGlideToNote(note);
+        startOrGlideToNote(rawNote);
       });
 
-      // Touch logic: tap + slide between keys, with recording
+      // Touch
       piano.addEventListener("touchstart", (e) => {
         e.preventDefault();
         if (activeTouchId !== null) return;
@@ -1079,14 +1063,16 @@
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
         const key = getKeyFromTarget(el);
         if (!key) return;
-        const note = key.getAttribute("data-note");
-        if (!note) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
+
+        currentRecordedNote = mapped;
         setActiveKey(key);
-        if (isRecording && note) {
-          recordNoteOff(recordingLastNote);
-          recordNoteOn(note);
+        if (recState === "recording") {
+          recordNoteOn(mapped);
         }
-        startOrGlideToNote(note);
+        startOrGlideToNote(rawNote);
       }, { passive: false });
 
       piano.addEventListener("touchmove", (e) => {
@@ -1096,20 +1082,22 @@
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
         const key = getKeyFromTarget(el);
         if (!key) return;
-        const note = key.getAttribute("data-note");
-        if (!note) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
 
-        if (note !== recordingLastNote) {
-          if (isRecording && recordingLastNote) {
-            recordNoteOff(recordingLastNote);
+        if (mapped !== currentRecordedNote) {
+          if (recState === "recording" && currentRecordedNote) {
+            recordNoteOff(currentRecordedNote);
           }
-          if (isRecording) {
-            recordNoteOn(note);
+          if (recState === "recording") {
+            recordNoteOn(mapped);
           }
+          currentRecordedNote = mapped;
         }
 
         setActiveKey(key);
-        startOrGlideToNote(note);
+        startOrGlideToNote(rawNote);
       }, { passive: false });
 
       function endTouch(e) {
@@ -1118,10 +1106,10 @@
         if (!touch) return;
         activeTouchId = null;
         pointerDown = false;
-        if (isRecording && recordingLastNote) {
-          recordNoteOff(recordingLastNote);
+        if (recState === "recording" && currentRecordedNote) {
+          recordNoteOff(currentRecordedNote);
         }
-        recordingLastNote = null;
+        currentRecordedNote = null;
         setActiveKey(null);
         stopCurrentVoice();
       }
