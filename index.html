@@ -376,7 +376,7 @@
     </div>
   </div>
 
-  <script>
+    <script>
     // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
     let iosAudioUnlocked = false;
     let audioCtx = null;
@@ -506,7 +506,7 @@
       }
     });
 
-    // Web Audio saw synth C1–C2 with glide + sliding, iOS-safe
+    // Web Audio saw synth C1–C2 with glide + sliding, iOS-safe, real durations
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
@@ -591,7 +591,7 @@
 
       // --- Looper state ---
       let loopStartTime = null;
-      let loopEvents = [];
+      let loopEvents = []; // { note, start, end, duration, time }
       let isRecording = false;
       let isPlayingPattern = false;
       let seqTimer = null;
@@ -601,6 +601,7 @@
       let stepTimer = null;
       let lastStepIndex = -1;
       let stepDots = [];
+      let recordingLastNote = null;
 
       async function loadDrumBuffers(ctx) {
         if (drumLoaded || drumLoading) return;
@@ -625,7 +626,6 @@
         const ctx = getAudio();
         if (!ctx) return;
         await loadDrumBuffers(ctx);
-        // If we already created sources, nothing else to do.
         if (Object.keys(drumSources).length) return;
 
         const startTime = ctx.currentTime + 0.05;
@@ -635,7 +635,6 @@
           if (!buffer) continue;
           const src = ctx.createBufferSource();
 
-          // Use the first loaded buffer's duration as the master loop length
           if (drumLoopDuration === null) {
             drumLoopDuration = buffer.duration;
           }
@@ -646,8 +645,7 @@
           src.loopEnd = drumLoopDuration;
 
           const gain = ctx.createGain();
-          // start muted by default; buttons will un-mute
-          gain.gain.setValueAtTime(0, startTime);
+          gain.gain.setValueAtTime(0, startTime); // start muted
 
           src.connect(gain);
           gain.connect(ctx.destination);
@@ -668,7 +666,7 @@
 
         const now = ctx.currentTime;
         const isOn = (gain.gain.value || 0) > 0.001;
-        const target = isOn ? 0 : 0.50;
+        const target = isOn ? 0 : 0.375; // ~50% of the previous 0.75
 
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
@@ -683,7 +681,7 @@
         }
       }
 
-      // --- Looper/recorder helper functions ---
+      // --- Loop helpers ---
       function getLoopLength() {
         if (drumLoopDuration && drumLoopDuration > 0) return drumLoopDuration;
         return defaultLoopLength;
@@ -699,27 +697,56 @@
         return pos;
       }
 
-      function recordNoteIfNeeded(noteName) {
-        if (!isRecording) return;
+      function quantizeNowTo16th() {
         const ctx = getAudio();
-        if (!ctx) return;
+        if (!ctx) return 0;
         const len = getLoopLength();
-        if (!len) return;
+        if (!len) return 0;
         const pos = getLoopPosition(ctx);
-        const sixteenth = len / 64; // 16ths over 4 bars
+        const sixteenth = len / 64; // 64 sixteenths over 4 bars
         let q = Math.round(pos / sixteenth) * sixteenth;
         if (q >= len) q = 0;
-
-        if (loopEvents.length) {
-          const last = loopEvents[loopEvents.length - 1];
-          if (Math.abs(last.time - q) < 1e-4 && last.note === noteName) {
-            return;
-          }
-        }
-        loopEvents.push({ time: q, note: noteName });
+        return q;
       }
 
-      function triggerSeqNote(noteName) {
+      // --- Recording note ON/OFF with duration ---
+      function recordNoteOn(noteName) {
+        if (!isRecording) return;
+        const start = quantizeNowTo16th();
+        const evt = {
+          note: noteName,
+          start,
+          end: null,
+          duration: null,
+          time: start
+        };
+        loopEvents.push(evt);
+        recordingLastNote = noteName;
+      }
+
+      function recordNoteOff(noteName) {
+        if (!isRecording) return;
+        const len = getLoopLength();
+        if (!len) return;
+        const end = quantizeNowTo16th();
+
+        for (let i = loopEvents.length - 1; i >= 0; i--) {
+          const evt = loopEvents[i];
+          if (evt.note === noteName && evt.end == null) {
+            evt.end = end;
+            let dur = end - evt.start;
+            if (dur <= 0) dur += len; // wrap across loop
+            evt.duration = dur;
+            break;
+          }
+        }
+
+        if (recordingLastNote === noteName) {
+          recordingLastNote = null;
+        }
+      }
+
+      function triggerSeqNote(noteName, duration) {
         const mapped = scaleMap[noteName] || noteName;
         const freq = noteFreq[mapped];
         if (!freq) return;
@@ -737,36 +764,47 @@
         distortion.curve = createDistortionCurve(4);
         distortion.oversample = "2x";
 
+        const dur = Math.max(0.08, duration || 0.6);
+        const attack = 0.02;
+        const decay = 0.06;
+        const sustainLevel = 0.22;
+        const release = 0.08;
+        const sustainTime = Math.max(0, dur - (attack + decay + release));
+
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
-        gain.gain.linearRampToValueAtTime(0.18, now + 0.3);
-        gain.gain.linearRampToValueAtTime(0, now + 0.6);
+        gain.gain.linearRampToValueAtTime(0.23, now + attack);
+        gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+        gain.gain.setValueAtTime(sustainLevel, now + attack + decay + sustainTime);
+        gain.gain.linearRampToValueAtTime(0, now + dur);
 
         osc.connect(distortion);
         distortion.connect(gain);
         gain.connect(ctx.destination);
 
         osc.start(now);
-        osc.stop(now + 0.65);
+        osc.stop(now + dur + 0.05);
       }
 
       function startPatternPlayback() {
-        if (!loopEvents.length || isPlayingPattern) return;
+        const events = loopEvents.filter(e => e.duration && e.duration > 0);
+        if (!events.length || isPlayingPattern) return;
         const ctx = getAudio();
         if (!ctx) return;
         isPlayingPattern = true;
         startStepTimer();
         lastLoopPos = getLoopPosition(ctx);
         if (seqTimer) clearInterval(seqTimer);
+
         seqTimer = setInterval(() => {
           const c = getAudio();
-          if (!c || !loopEvents.length) return;
+          if (!c || !events.length) return;
           const len = getLoopLength();
           const prev = lastLoopPos;
           const pos = getLoopPosition(c);
           lastLoopPos = pos;
           const wrapped = pos < prev;
-          loopEvents.forEach((evt) => {
+
+          events.forEach((evt) => {
             const t = evt.time;
             let hit = false;
             if (wrapped) {
@@ -775,7 +813,7 @@
               if (t > prev && t <= pos) hit = true;
             }
             if (hit) {
-              triggerSeqNote(evt.note);
+              triggerSeqNote(evt.note, evt.duration);
             }
           });
         }, 30);
@@ -792,32 +830,31 @@
         }
       }
 
+      // 16-step quarter-note visual over 4 bars
       function startStepTimer() {
-  const ctx = getAudio();
-  if (!ctx) return;
-  if (stepTimer) return;
-  const len = getLoopLength();
-  // 4 bars of 4/4 = 16 quarter notes
-  const stepLength = len / 16; // each step = 1 quarter note
-  stepTimer = setInterval(() => {
-    const c = getAudio();
-    if (!c) return;
-    const pos = getLoopPosition(c);
-    // 16 steps across the full loop
-    const stepIndex = Math.floor(pos / stepLength) % 16;
-    if (stepIndex === lastStepIndex) return;
-    lastStepIndex = stepIndex;
-    if (stepDots.length) {
-      stepDots.forEach((dot, idx) => {
-        if (idx === stepIndex) {
-          dot.classList.add("active");
-        } else {
-          dot.classList.remove("active");
-        }
-      });
-    }
-  }, 30);
-}
+        const ctx = getAudio();
+        if (!ctx) return;
+        if (stepTimer) return;
+        const len = getLoopLength();
+        const stepLength = len / 16; // each step = 1 quarter note
+        stepTimer = setInterval(() => {
+          const c = getAudio();
+          if (!c) return;
+          const pos = getLoopPosition(c);
+          const stepIndex = Math.floor(pos / stepLength) % 16;
+          if (stepIndex === lastStepIndex) return;
+          lastStepIndex = stepIndex;
+          if (stepDots.length) {
+            stepDots.forEach((dot, idx) => {
+              if (idx === stepIndex) {
+                dot.classList.add("active");
+              } else {
+                dot.classList.remove("active");
+              }
+            });
+          }
+        }, 30);
+      }
 
       function stopStepTimer() {
         if (stepTimer) {
@@ -847,8 +884,6 @@
         const mapped = scaleMap[note] || note;
         const freq = noteFreq[mapped];
         if (!freq) return;
-
-        recordNoteIfNeeded(mapped);
 
         const ctx = getAudio();
         if (!ctx) return;
@@ -933,6 +968,7 @@
             // start fresh recording
             isRecording = true;
             loopEvents = [];
+            recordingLastNote = null;
             startStepTimer();
             recordBtn.classList.add("recording");
             recordBtn.classList.remove("looping");
@@ -940,8 +976,10 @@
           } else if (isRecording) {
             // stop recording & start playback if we have notes
             isRecording = false;
+            recordingLastNote = null;
             recordBtn.classList.remove("recording");
-            if (loopEvents.length) {
+            const events = loopEvents.filter(e => e.duration && e.duration > 0);
+            if (events.length) {
               startPatternPlayback();
               recordBtn.classList.add("looping");
               recordBtn.textContent = "looping";
@@ -984,13 +1022,17 @@
         return target.closest ? target.closest(".key[data-note]") : null;
       }
 
-      // Mouse logic: click + slide between keys
+      // Mouse logic: click + slide between keys, with recording
       keys.forEach((key) => {
         key.addEventListener("mousedown", (e) => {
           e.preventDefault();
           pointerDown = true;
           const note = key.getAttribute("data-note");
           setActiveKey(key);
+          if (isRecording && note) {
+            recordNoteOff(recordingLastNote); // just in case
+            recordNoteOn(note);
+          }
           startOrGlideToNote(note);
         });
       });
@@ -998,6 +1040,10 @@
       window.addEventListener("mouseup", () => {
         if (!pointerDown) return;
         pointerDown = false;
+        if (isRecording && recordingLastNote) {
+          recordNoteOff(recordingLastNote);
+        }
+        recordingLastNote = null;
         setActiveKey(null);
         stopCurrentVoice();
       });
@@ -1009,11 +1055,21 @@
         if (!key) return;
         const note = key.getAttribute("data-note");
         if (!note) return;
+
+        if (note !== recordingLastNote) {
+          if (isRecording && recordingLastNote) {
+            recordNoteOff(recordingLastNote);
+          }
+          if (isRecording) {
+            recordNoteOn(note);
+          }
+        }
+
         setActiveKey(key);
         startOrGlideToNote(note);
       });
 
-      // Touch logic: tap + slide between keys
+      // Touch logic: tap + slide between keys, with recording
       piano.addEventListener("touchstart", (e) => {
         e.preventDefault();
         if (activeTouchId !== null) return;
@@ -1026,6 +1082,10 @@
         const note = key.getAttribute("data-note");
         if (!note) return;
         setActiveKey(key);
+        if (isRecording && note) {
+          recordNoteOff(recordingLastNote);
+          recordNoteOn(note);
+        }
         startOrGlideToNote(note);
       }, { passive: false });
 
@@ -1038,6 +1098,16 @@
         if (!key) return;
         const note = key.getAttribute("data-note");
         if (!note) return;
+
+        if (note !== recordingLastNote) {
+          if (isRecording && recordingLastNote) {
+            recordNoteOff(recordingLastNote);
+          }
+          if (isRecording) {
+            recordNoteOn(note);
+          }
+        }
+
         setActiveKey(key);
         startOrGlideToNote(note);
       }, { passive: false });
@@ -1048,6 +1118,10 @@
         if (!touch) return;
         activeTouchId = null;
         pointerDown = false;
+        if (isRecording && recordingLastNote) {
+          recordNoteOff(recordingLastNote);
+        }
+        recordingLastNote = null;
         setActiveKey(null);
         stopCurrentVoice();
       }
