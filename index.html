@@ -953,8 +953,8 @@
           recordBtn.classList.remove("looping");
           recordBtn.textContent = "count-in";
 
-          // Start transport now, so bar runs continuous through count-in & recording & playback
-          startTransport(baseTime);
+          // Start transport at the actual bar 1, AFTER the 4-beat count-in
+startTransport(recStartTime);
 
           // Switch into "recording" after count-in
           const toRecordMs = Math.max(0, (recStartTime - ctx.currentTime) * 1000);
