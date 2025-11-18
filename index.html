@@ -953,6 +953,22 @@
           recordBtn.classList.remove("looping");
           recordBtn.textContent = "count-in";
 
+// --- COUNT-IN VISUAL (4 → 3 → 2 → 1) ---
+for (let i = 0; i < 4; i++) {
+  const beatTime = baseTime + i * BEAT_DUR;
+  const displayNumber = 4 - i;
+
+  // Schedule UI update on each beat
+  setTimeout(() => {
+    recordBtn.textContent = displayNumber.toString();
+  }, (beatTime - now) * 1000);
+}
+
+// When count-in ends, show active recording state
+setTimeout(() => {
+  recordBtn.textContent = "rec*";
+}, (recStartTime - now) * 1000);
+
           // Start transport at the actual bar 1, AFTER the 4-beat count-in
 startTransport(recStartTime);
 
