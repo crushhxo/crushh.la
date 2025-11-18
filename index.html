@@ -977,7 +977,7 @@
       }
 
       // --- SYNTH SEQUENCER (64-step mono pattern) ---
-      let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSteps}
+      let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSeconds} - start quantized to 16ths, duration preserved
       let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
       let recStartTime = null;
       let recEndTime = null;
@@ -991,7 +991,10 @@
         const evt = synthPattern[localStep];
         if (!evt) return;
 
-        const duration = evt.lengthSteps * STEP_DUR;
+        // Use precise duration if available, otherwise fall back to step-based (for backwards compatibility)
+        const duration = evt.lengthSeconds !== undefined 
+          ? evt.lengthSeconds 
+          : (evt.lengthSteps * STEP_DUR);
         triggerSeqNote(evt.note, duration, when);
       }
 
@@ -1048,12 +1051,18 @@
           recordNoteOff(existing);
         });
 
+        // Quantize START position to nearest 16th step, but keep actual start time
         const globalStepNow = timeToGlobalStep(now);
         let localStart = globalStepNow - recStartGlobalStep;
         if (localStart < 0) localStart = 0;
         if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
-        pendingNotes[mappedNote] = { startGlobalStep: globalStepNow, localStart };
+        // Store quantized start step AND actual start time for precise duration calculation
+        pendingNotes[mappedNote] = { 
+          startGlobalStep: globalStepNow, 
+          localStart,
+          actualStartTime: now  // Store actual time for precise duration
+        };
       }
 
       function recordNoteOff(mappedNote) {
@@ -1065,15 +1074,17 @@
 
         const now = ctx.currentTime;
         const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
-        const globalStepOff = timeToGlobalStep(clamped);
-
-        let localEnd = globalStepOff - data.localStart;
-        if (localEnd <= data.localStart) localEnd = data.localStart + 1;
-        if (localEnd > TOTAL_STEPS) localEnd = TOTAL_STEPS;
-
-        const lengthSteps = localEnd - data.localStart;
-        if (lengthSteps > 0) {
-          synthPattern[data.localStart] = { note: mappedNote, lengthSteps };
+        
+        // Calculate actual duration in seconds (not quantized)
+        const actualDuration = Math.max(0, clamped - data.actualStartTime);
+        
+        // Only quantize the START position, preserve actual duration
+        if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+          // Store duration as seconds (can be converted to steps when needed, but preserve precision)
+          synthPattern[data.localStart] = { 
+            note: mappedNote, 
+            lengthSeconds: actualDuration  // Store precise duration, not quantized steps
+          };
         }
 
         delete pendingNotes[mappedNote];
@@ -1081,14 +1092,19 @@
 
       function finalizeRecording() {
         // close any held notes at loop boundary
-        Object.entries(pendingNotes).forEach(([note, data]) => {
-          let localEnd = TOTAL_STEPS;
-          if (localEnd <= data.localStart) localEnd = data.localStart + 1;
-          const lengthSteps = localEnd - data.localStart;
-          if (lengthSteps > 0) {
-            synthPattern[data.localStart] = { note, lengthSteps };
-          }
-        });
+        const ctx = getAudio();
+        if (ctx && recEndTime !== null) {
+          Object.entries(pendingNotes).forEach(([note, data]) => {
+            // Calculate duration from actual start time to end of recording
+            const actualDuration = Math.max(0, recEndTime - data.actualStartTime);
+            if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+              synthPattern[data.localStart] = { 
+                note, 
+                lengthSeconds: actualDuration  // Store precise duration
+              };
+            }
+          });
+        }
         pendingNotes = {};
       }
 
@@ -1158,6 +1174,17 @@
 
       if (playBtn) {
         playBtn.addEventListener("click", async () => {
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
           const ctx = getAudio();
           if (!ctx) return;
           await loadDrumBuffers(ctx);
@@ -1180,7 +1207,18 @@
       }
 
       if (stopBtn) {
-        stopBtn.addEventListener("click", () => {
+        stopBtn.addEventListener("click", async () => {
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
           stopTransport();
           recState = "idle";
           pendingNotes = {};
@@ -1199,6 +1237,17 @@
 
       if (recBtn) {
         recBtn.addEventListener("click", async () => {
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
           const ctx = getAudio();
           if (!ctx) return;
           await loadDrumBuffers(ctx);
