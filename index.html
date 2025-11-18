@@ -352,7 +352,7 @@
         </div>
       </div>
 
-      <!-- 16-step counter -->
+      <!-- 16-step quarter-note counter -->
       <div class="step-indicator" id="step-indicator"></div>
 
       <!-- recorder controls -->
@@ -422,8 +422,8 @@
 
     // Crash + flicker logic for logo
     document.addEventListener("DOMContentLoaded", () => {
-      const logo = document.querySelector(".logo");        // inner img for flicker
-      const shell = document.querySelector(".logo-shell"); // outer for crash/fade
+      const logo = document.querySelector(".logo");
+      const shell = document.querySelector(".logo-shell");
       if (!logo || !shell) return;
 
       const shouldCrash = sessionStorage.getItem("crushhCrash") === "1";
@@ -470,22 +470,18 @@
       }
 
       if (shouldCrash) {
-        // only crash once per 404 → home
         sessionStorage.removeItem("crushhCrash");
 
-        // start shell from far pose (visual only; animation takes over)
         shell.style.opacity = "0";
         shell.style.transform = "translateZ(950px) scale(2.9) rotateX(16deg)";
         shell.style.filter = "blur(12px) contrast(1.35)";
 
-        // ensure browser paints initial state, then trigger crash animation
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             shell.classList.add("crash-in");
           });
         });
 
-        // when crash finishes, start flicker on the inner logo
         shell.addEventListener(
           "animationend",
           () => {
@@ -498,7 +494,6 @@
           { once: true }
         );
       } else {
-        // normal initial fade, then glitch (same flicker as original)
         shell.classList.add("normal-in");
         setTimeout(() => {
           startGlitch();
@@ -506,18 +501,20 @@
       }
     });
 
-    // Synth / drums / sequencer with global transport
+    // Synth / drums / sequencer with DAW-style global transport
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
         return;
       }
 
-      const BPM = 130;
-      const BEAT_DUR = 60 / BPM;      // seconds per beat
-      const LOOP_BEATS = 16;          // 4 bars of 4/4
-      const LOOP_STEPS = 64;          // 16th notes
-      const STEP_LEN = (LOOP_BEATS * BEAT_DUR) / LOOP_STEPS; // seconds per 16th
+      const LOOP_BEATS = 16;   // 4 bars of 4/4
+      const LOOP_STEPS = 64;   // 16ths over 4 bars
+
+      let BPM = 130;           // conceptual BPM
+      let BEAT_DUR = 60 / BPM; // seconds per beat (will be updated from audio)
+      let loopDuration = LOOP_BEATS * BEAT_DUR;
+      let STEP_LEN = loopDuration / LOOP_STEPS;
 
       // global transport anchor: beat 0 for the whole page
       let transportStartTime = null;
@@ -588,16 +585,15 @@
           } catch (e) {}
         }
 
-        // initialize global transport anchor once
         if (transportStartTime === null) {
           const now = audioCtx.currentTime;
-          transportStartTime = now + 0.2; // tiny lead-in for stability
+          transportStartTime = now + 0.2; // small lead-in
         }
 
         return audioCtx;
       }
 
-      // Live synth voice (for direct playing, not sequencer playback)
+      // Live synth voice (for direct playing)
       let currentVoice = null; // { osc, gain }
       const glideTime = 0.08;
 
@@ -681,6 +677,14 @@
             const buf = await ctx.decodeAudioData(arr);
             drumBuffers[part] = buf;
           }
+
+          // Use kick buffer to define loop length and timing
+          if (drumBuffers["kick"]) {
+            loopDuration = drumBuffers["kick"].duration;
+            BEAT_DUR = loopDuration / LOOP_BEATS;
+            STEP_LEN = loopDuration / LOOP_STEPS;
+          }
+
           drumLoaded = true;
         } catch (e) {
           console.warn("Error loading drum loops:", e);
@@ -750,10 +754,12 @@
       let grid = Array.from({ length: LOOP_STEPS }, () => []); // grid[step] = [{note, lengthSteps}, ...]
       let pendingNotes = {}; // note -> { startStep }
 
-      // Transport for steps + visual bar (derived from global clock)
+      // Transport for steps + visual bar
       let stepDots = [];
       let stepTimer = null;
-      let lastStepIndex = null;
+      let currentStep = 0;
+      let nextStepTime = 0;
+      let lastVisualQuarter = null;
 
       function triggerSeqNote(noteName, durationSeconds, startTime) {
         const mapped = scaleMap[noteName] || noteName;
@@ -797,42 +803,47 @@
 
       function startTransportIfNeeded() {
         const ctx = getAudio();
-        if (!ctx || stepTimer || transportStartTime === null) return;
+        if (!ctx) return;
+        if (stepTimer) return;
+        if (transportStartTime === null || !STEP_LEN) return;
+
+        const now = ctx.currentTime;
+        const rel = Math.max(0, now - transportStartTime);
+        const stepsSinceStart = Math.floor(rel / STEP_LEN);
+        currentStep = stepsSinceStart % LOOP_STEPS;
+        nextStepTime = transportStartTime + (stepsSinceStart + 1) * STEP_LEN;
+        lastVisualQuarter = null;
 
         stepTimer = setInterval(() => {
           const c = getAudio();
-          if (!c || transportStartTime === null) return;
+          if (!c) return;
+          const now2 = c.currentTime;
+          const lookahead = 0.1;
 
-          const now = c.currentTime;
-          const elapsed = now - transportStartTime;
-          if (elapsed < 0) return;
+          while (nextStepTime <= now2 + lookahead) {
+            const stepIndex = currentStep;
 
-          const totalStepsFloat = elapsed / STEP_LEN;
-          const stepIndex = ((Math.floor(totalStepsFloat) % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
-
-          if (stepIndex === lastStepIndex) return;
-          lastStepIndex = stepIndex;
-
-          // 16-dot quarter-note indicator (4 steps per dot)
-          if (stepDots.length) {
-            const quarterIndex = Math.floor(stepIndex / 4); // 0..15
-            stepDots.forEach((dot, idx) => {
-              if (idx === quarterIndex) {
-                dot.classList.add("active");
-              } else {
-                dot.classList.remove("active");
+            // 16-dot quarter-note indicator
+            if (stepDots.length) {
+              const quarterIndex = Math.floor(stepIndex / 4); // 0..15
+              if (quarterIndex !== lastVisualQuarter) {
+                stepDots.forEach((dot, idx) => {
+                  dot.classList.toggle("active", idx === quarterIndex);
+                });
+                lastVisualQuarter = quarterIndex;
               }
-            });
-          }
+            }
 
-          // playback: schedule notes on this step
-          if (recState === "playing" && grid[stepIndex].length) {
-            const loopIndex = Math.floor(totalStepsFloat / LOOP_STEPS); // which loop iteration
-            const stepGlobalTime =
-              transportStartTime + loopIndex * LOOP_STEPS * STEP_LEN + stepIndex * STEP_LEN;
-            grid[stepIndex].forEach(evt => {
-              triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, stepGlobalTime);
-            });
+            // playback: schedule notes on this step
+            if (recState === "playing" && grid[stepIndex].length) {
+              const when = nextStepTime;
+              grid[stepIndex].forEach(evt => {
+                triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, when);
+              });
+            }
+
+            currentStep = (currentStep + 1) % LOOP_STEPS;
+            nextStepTime += STEP_LEN;
           }
         }, 25);
       }
@@ -842,7 +853,7 @@
           clearInterval(stepTimer);
           stepTimer = null;
         }
-        lastStepIndex = null;
+        lastVisualQuarter = null;
         if (stepDots.length) {
           stepDots.forEach(dot => dot.classList.remove("active"));
         }
@@ -857,14 +868,16 @@
       function recordNoteOn(note) {
         if (recState !== "recording") return;
         const ctx = getAudio();
-        if (!ctx || transportStartTime === null) return;
+        if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const now = ctx.currentTime;
         if (now < recStartTime || now > recEndTime) return;
 
-        const elapsed = now - transportStartTime;
-        const totalSteps = Math.round(elapsed / STEP_LEN);
-        let stepIndex = ((totalSteps % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
+        const pos = now - recStartTime;
+        const stepFloat = pos / STEP_LEN;
+        let stepIndex = Math.round(stepFloat);
+        if (stepIndex < 0) stepIndex = 0;
+        if (stepIndex >= LOOP_STEPS) stepIndex = LOOP_STEPS - 1;
 
         pendingNotes[note] = { startStep: stepIndex };
       }
@@ -872,19 +885,20 @@
       function recordNoteOff(note) {
         if (recState !== "recording") return;
         const ctx = getAudio();
-        if (!ctx || transportStartTime === null) return;
+        if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const data = pendingNotes[note];
         if (!data) return;
 
         const now = ctx.currentTime;
-        const elapsed = now - transportStartTime;
-        let totalSteps = Math.round(elapsed / STEP_LEN);
-        let endStep = ((totalSteps % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
+        const clampedNow = Math.max(recStartTime, Math.min(now, recEndTime));
+        const pos = clampedNow - recStartTime;
+        let endStep = Math.round(pos / STEP_LEN);
 
-        let lengthSteps = endStep - data.startStep;
-        if (lengthSteps <= 0) lengthSteps += LOOP_STEPS; // wrap across loop
+        if (endStep <= data.startStep) endStep = data.startStep + 1;
+        if (endStep > LOOP_STEPS) endStep = LOOP_STEPS;
 
+        const lengthSteps = endStep - data.startStep;
         if (lengthSteps > 0) {
           grid[data.startStep].push({ note, lengthSteps });
         }
@@ -892,9 +906,10 @@
       }
 
       function finalizeRecording() {
-        // Close any held notes at loop boundary
+        // Close held notes at loop boundary
         Object.entries(pendingNotes).forEach(([note, data]) => {
-          const lengthSteps = LOOP_STEPS - data.startStep;
+          const endStep = LOOP_STEPS;
+          const lengthSteps = endStep - data.startStep;
           if (lengthSteps > 0) {
             grid[data.startStep].push({ note, lengthSteps });
           }
@@ -928,15 +943,14 @@
 
       const recordBtn = document.getElementById("seq-record");
       if (recordBtn) {
-        recordBtn.addEventListener("click", () => {
+        recordBtn.addEventListener("click", async () => {
           const ctx = getAudio();
           if (!ctx) return;
 
-          // Cancel from any active state back to idle
+          // If currently active, cancel and clear pattern
           if (recState === "count-in" || recState === "recording" || recState === "playing") {
             recState = "idle";
             finalizeRecording();
-            stopTransport();
             grid = Array.from({ length: LOOP_STEPS }, () => []);
             pendingNotes = {};
             currentRecordedNote = null;
@@ -945,9 +959,14 @@
             return;
           }
 
-          // Start a fresh pass: quantized count-in, record 4 bars, then loop
-          ensureDrumsStarted();
+          await ensureDrumsStarted();
           startTransportIfNeeded();
+
+          // ensure loopDuration / STEP_LEN are valid
+          if (!loopDuration) {
+            loopDuration = LOOP_BEATS * BEAT_DUR;
+            STEP_LEN = loopDuration / LOOP_STEPS;
+          }
 
           grid = Array.from({ length: LOOP_STEPS }, () => []);
           pendingNotes = {};
@@ -960,14 +979,12 @@
 
           const elapsedBeats = (now - transportStartTime) / BEAT_DUR;
           const currentBarIndex = Math.floor(elapsedBeats / 4);
-          const nextBarIndex = currentBarIndex + 1;
-
-          const countInBarIndex = nextBarIndex;      // upcoming bar = count-in
-          const recBarIndex = countInBarIndex + 1;   // bar after that = bar 1 of recording
+          const countInBarIndex = currentBarIndex + 1;      // next bar
+          const recBarIndex = countInBarIndex + 1;          // bar after count-in
 
           const countInStartBeat = countInBarIndex * 4;
           const recStartBeat = recBarIndex * 4;
-          const recEndBeat = recStartBeat + LOOP_BEATS; // 4 bars
+          const recEndBeat = recStartBeat + LOOP_BEATS;     // 4 bars after
 
           const countInStartTime = transportStartTime + countInStartBeat * BEAT_DUR;
           recStartTime = transportStartTime + recStartBeat * BEAT_DUR;
