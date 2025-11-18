@@ -193,7 +193,7 @@
 
     /* transport + sequencer */
     .transport {
-      margin-top: 16px;
+      margin-top: 10px;
       display: flex;
       justify-content: center;
       gap: 6px;
@@ -228,6 +228,9 @@
       display: flex;
       justify-content: center;
       gap: 4px;
+      max-width: 260px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .step-dot {
@@ -246,7 +249,7 @@
     }
 
     .seq-controls {
-      margin-top: 6px;
+      margin-top: 8px;
       display: flex;
       justify-content: center;
     }
@@ -254,7 +257,7 @@
     .seq-button {
       font-size: 10px;
       text-transform: lowercase;
-      padding: 3px 9px;
+      padding: 3px 12px;
       border-radius: 999px;
       border: 1px solid rgba(0, 0, 0, 0.35);
       background: rgba(0, 0, 0, 0.03);
@@ -279,16 +282,26 @@
 
     /* drums */
     .drums {
-      margin-top: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: center;
+      margin-top: 18px;
+      max-width: 260px; /* match piano width */
+      margin-left: auto;
+      margin-right: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 10px;
+      row-gap: 12px;
+      align-items: flex-start;
+      justify-items: center;
     }
 
     .drum-lane {
       width: 100%;
-      max-width: 520px;
+    }
+
+    .drum-lane[data-part="perc"] {
+      grid-column: 1 / span 2;
+      justify-self: center;
+      max-width: 130px;
     }
 
     .drum-header {
@@ -325,7 +338,7 @@
 
     .drum-select {
       font-size: 10px;
-      padding: 2px 6px;
+      padding: 2px 8px;
       border-radius: 999px;
       border: 1px solid rgba(0, 0, 0, 0.3);
       background: rgba(0, 0, 0, 0.02);
@@ -342,7 +355,7 @@
       grid-template-columns: repeat(4, minmax(12px, 1fr));
       grid-template-rows: repeat(4, 16px);
       gap: 3px;
-      max-width: 260px;
+      max-width: 120px; /* narrower sequencer blocks */
     }
 
     .drum-cell {
@@ -435,18 +448,18 @@
         </div>
       </div>
 
-      <!-- transport -->
-      <div class="transport">
-        <button class="transport-button" id="transport-play">play</button>
-        <button class="transport-button" id="transport-stop">stop</button>
-      </div>
-
       <!-- 16 quarter-note dots for 4 bars -->
       <div class="step-indicator" id="step-indicator"></div>
 
       <!-- recorder controls -->
       <div class="seq-controls">
-        <button class="seq-button" id="seq-record">rec</button>
+        <button class="seq-button" id="seq-record">rec synth</button>
+      </div>
+
+      <!-- transport -->
+      <div class="transport">
+        <button class="transport-button" id="transport-play">play</button>
+        <button class="transport-button" id="transport-stop">stop</button>
       </div>
 
       <!-- drums -->
@@ -455,10 +468,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="kick">kick</button>
             <select class="drum-select" data-part="kick">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
+              <option value="1">Sound 1</option>
+              <option value="2">Sound 2</option>
+              <option value="3">Sound 3</option>
+              <option value="4">Sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="kick"></div>
@@ -468,10 +481,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="snare">snare</button>
             <select class="drum-select" data-part="snare">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
+              <option value="1">Sound 1</option>
+              <option value="2">Sound 2</option>
+              <option value="3">Sound 3</option>
+              <option value="4">Sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="snare"></div>
@@ -481,10 +494,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="ch">ch</button>
             <select class="drum-select" data-part="ch">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
+              <option value="1">Sound 1</option>
+              <option value="2">Sound 2</option>
+              <option value="3">Sound 3</option>
+              <option value="4">Sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="ch"></div>
@@ -494,10 +507,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="oh">oh</button>
             <select class="drum-select" data-part="oh">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
+              <option value="1">Sound 1</option>
+              <option value="2">Sound 2</option>
+              <option value="3">Sound 3</option>
+              <option value="4">Sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="oh"></div>
@@ -507,10 +520,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="perc">perc</button>
             <select class="drum-select" data-part="perc">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
+              <option value="1">Sound 1</option>
+              <option value="2">Sound 2</option>
+              <option value="3">Sound 3</option>
+              <option value="4">Sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="perc"></div>
@@ -706,7 +719,6 @@
         transportStartTime = now + 0.15;
         transportRunning = true;
 
-        const rel = 0;
         globalStepCounter = 0;
         nextStepTime = transportStartTime + STEP_DUR;
         lastQuarterVisual = null;
@@ -1053,7 +1065,7 @@
         const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
         const globalStepOff = timeToGlobalStep(clamped);
 
-        let localEnd = globalStepOff - recStartGlobalStep;
+        let localEnd = globalStepOff - data.localStart;
         if (localEnd <= data.localStart) localEnd = data.localStart + 1;
         if (localEnd > TOTAL_STEPS) localEnd = TOTAL_STEPS;
 
@@ -1157,7 +1169,7 @@
           recStartTime = null;
           recEndTime = null;
           recBtn.classList.remove("recording","looping");
-          recBtn.textContent = "rec";
+          recBtn.textContent = "rec synth";
 
           startTransport();
           playBtn.classList.add("active");
@@ -1176,7 +1188,7 @@
           synthPattern = new Array(TOTAL_STEPS).fill(null);
           if (recBtn) {
             recBtn.classList.remove("recording","looping");
-            recBtn.textContent = "rec";
+            recBtn.textContent = "rec synth";
           }
           if (playBtn) playBtn.classList.remove("active");
           stopBtn.classList.add("active");
@@ -1199,7 +1211,7 @@
             recStartTime = null;
             recEndTime = null;
             recBtn.classList.remove("recording","looping");
-            recBtn.textContent = "rec";
+            recBtn.textContent = "rec synth";
             return;
           }
 
@@ -1274,7 +1286,7 @@
               recState = "recording";
               synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
-              recBtn.textContent = "rec*";
+              recBtn.textContent = "rec synth*";
             }, toRecordMs);
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
@@ -1321,8 +1333,7 @@
 
             recStartTime = recStart;
             recEndTime = recEnd;
-            recStartGlobalStep = Math.round((recordStartBeatGlobal * BEATS_PER_BAR * 0 + recordStartBeatGlobal * 4)); // 4 steps per beat
-            recStartGlobalStep = recordStartBeatGlobal * 4;
+            recStartGlobalStep = recordStartBeatGlobal * 4; // 4 steps per beat
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
@@ -1330,7 +1341,7 @@
               recState = "recording";
               synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
-              recBtn.textContent = "rec*";
+              recBtn.textContent = "rec synth*";
             }, toRecordMs);
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
