@@ -501,7 +501,7 @@
       }
     });
 
-    // Synth / drums / sequencer with DAW-style global transport
+    // Synth / drums / sequencer with DAW-style global transport, monophonic
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
@@ -512,7 +512,7 @@
       const LOOP_STEPS = 64;   // 16ths over 4 bars
 
       let BPM = 130;           // conceptual BPM
-      let BEAT_DUR = 60 / BPM; // seconds per beat (will be updated from audio)
+      let BEAT_DUR = 60 / BPM; // seconds per beat (refined from audio)
       let loopDuration = LOOP_BEATS * BEAT_DUR;
       let STEP_LEN = loopDuration / LOOP_STEPS;
 
@@ -711,6 +711,10 @@
           src.buffer = buffer;
           src.loop = true;
 
+          // Force all loops to share the same window to prevent drift
+          src.loopStart = 0;
+          src.loopEnd = loopDuration;
+
           const gain = ctx.createGain();
           gain.gain.setValueAtTime(0, startTime); // start muted
 
@@ -751,13 +755,13 @@
       }
 
       // Sequencer grid: 64 steps (16ths)
-      let grid = Array.from({ length: LOOP_STEPS }, () => []); // grid[step] = [{note, lengthSteps}, ...]
-      let pendingNotes = {}; // note -> { startStep }
+      let grid = Array.from({ length: LOOP_STEPS }, () => []); // grid[step] = [{note, lengthSteps}]
+      let pendingNotes = {}; // note -> { startStepGlobal }
 
       // Transport for steps + visual bar
       let stepDots = [];
       let stepTimer = null;
-      let currentStep = 0;
+      let stepCounter = 0;       // global step index since transportStart
       let nextStepTime = 0;
       let lastVisualQuarter = null;
 
@@ -809,9 +813,9 @@
 
         const now = ctx.currentTime;
         const rel = Math.max(0, now - transportStartTime);
-        const stepsSinceStart = Math.floor(rel / STEP_LEN);
-        currentStep = stepsSinceStart % LOOP_STEPS;
-        nextStepTime = transportStartTime + (stepsSinceStart + 1) * STEP_LEN;
+        const initialSteps = Math.floor(rel / STEP_LEN);
+        stepCounter = initialSteps;
+        nextStepTime = transportStartTime + (stepCounter + 1) * STEP_LEN;
         lastVisualQuarter = null;
 
         stepTimer = setInterval(() => {
@@ -821,11 +825,12 @@
           const lookahead = 0.1;
 
           while (nextStepTime <= now2 + lookahead) {
-            const stepIndex = currentStep;
+            stepCounter++;
+            const localStep = stepCounter % LOOP_STEPS;
 
             // 16-dot quarter-note indicator
             if (stepDots.length) {
-              const quarterIndex = Math.floor(stepIndex / 4); // 0..15
+              const quarterIndex = Math.floor(localStep / 4); // 0..15
               if (quarterIndex !== lastVisualQuarter) {
                 stepDots.forEach((dot, idx) => {
                   dot.classList.toggle("active", idx === quarterIndex);
@@ -834,15 +839,14 @@
               }
             }
 
-            // playback: schedule notes on this step
-            if (recState === "playing" && grid[stepIndex].length) {
+            // playback: schedule notes on this step (monophonic grid per step)
+            if (recState === "playing" && grid[localStep].length) {
               const when = nextStepTime;
-              grid[stepIndex].forEach(evt => {
+              grid[localStep].forEach(evt => {
                 triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, when);
               });
             }
 
-            currentStep = (currentStep + 1) % LOOP_STEPS;
             nextStepTime += STEP_LEN;
           }
         }, 25);
@@ -859,10 +863,16 @@
         }
       }
 
+      function timeToGlobalStep(t) {
+        if (transportStartTime === null || !STEP_LEN) return 0;
+        return Math.round((t - transportStartTime) / STEP_LEN);
+      }
+
       // Recording state
       let recState = "idle";   // "idle" | "count-in" | "recording" | "playing"
       let recStartTime = null;
       let recEndTime = null;
+      let recStartGlobalStep = 0;
       let currentRecordedNote = null; // mapped note currently down
 
       function recordNoteOn(note) {
@@ -873,13 +883,17 @@
         const now = ctx.currentTime;
         if (now < recStartTime || now > recEndTime) return;
 
-        const pos = now - recStartTime;
-        const stepFloat = pos / STEP_LEN;
-        let stepIndex = Math.round(stepFloat);
-        if (stepIndex < 0) stepIndex = 0;
-        if (stepIndex >= LOOP_STEPS) stepIndex = LOOP_STEPS - 1;
+        // monophonic: if something is already pending, close it first
+        Object.keys(pendingNotes).forEach(existing => {
+          recordNoteOff(existing);
+        });
 
-        pendingNotes[note] = { startStep: stepIndex };
+        const globalStepNow = timeToGlobalStep(now);
+        let localStart = globalStepNow - recStartGlobalStep;
+        if (localStart < 0) localStart = 0;
+        if (localStart >= LOOP_STEPS) localStart = LOOP_STEPS - 1;
+
+        pendingNotes[note] = { startStepGlobal: globalStepNow, localStart };
       }
 
       function recordNoteOff(note) {
@@ -892,26 +906,29 @@
 
         const now = ctx.currentTime;
         const clampedNow = Math.max(recStartTime, Math.min(now, recEndTime));
-        const pos = clampedNow - recStartTime;
-        let endStep = Math.round(pos / STEP_LEN);
+        const globalStepOff = timeToGlobalStep(clampedNow);
 
-        if (endStep <= data.startStep) endStep = data.startStep + 1;
-        if (endStep > LOOP_STEPS) endStep = LOOP_STEPS;
+        let localEnd = globalStepOff - recStartGlobalStep;
+        if (localEnd <= data.localStart) localEnd = data.localStart + 1;
+        if (localEnd > LOOP_STEPS) localEnd = LOOP_STEPS;
 
-        const lengthSteps = endStep - data.startStep;
+        const lengthSteps = localEnd - data.localStart;
         if (lengthSteps > 0) {
-          grid[data.startStep].push({ note, lengthSteps });
+          // MONO: one event per step, last wins
+          grid[data.localStart] = [{ note, lengthSteps }];
         }
+
         delete pendingNotes[note];
       }
 
       function finalizeRecording() {
-        // Close held notes at loop boundary
+        // Close any held notes at loop boundary
         Object.entries(pendingNotes).forEach(([note, data]) => {
-          const endStep = LOOP_STEPS;
-          const lengthSteps = endStep - data.startStep;
+          let localEnd = LOOP_STEPS;
+          if (localEnd <= data.localStart) localEnd = data.localStart + 1;
+          const lengthSteps = localEnd - data.localStart;
           if (lengthSteps > 0) {
-            grid[data.startStep].push({ note, lengthSteps });
+            grid[data.localStart] = [{ note, lengthSteps }];
           }
         });
         pendingNotes = {};
@@ -964,7 +981,7 @@
 
           // ensure loopDuration / STEP_LEN are valid
           if (!loopDuration) {
-            loopDuration = LOOP_BEATS * BEAT_DUR;
+            loopDuration = LOOP_BEATS * (60 / BPM);
             STEP_LEN = loopDuration / LOOP_STEPS;
           }
 
@@ -979,16 +996,19 @@
 
           const elapsedBeats = (now - transportStartTime) / BEAT_DUR;
           const currentBarIndex = Math.floor(elapsedBeats / 4);
-          const countInBarIndex = currentBarIndex + 1;      // next bar
-          const recBarIndex = countInBarIndex + 1;          // bar after count-in
+          const countInBarIndex = currentBarIndex + 1;      // next bar = count-in
+          const recBarIndex = countInBarIndex + 1;          // bar after count-in = bar 1
 
           const countInStartBeat = countInBarIndex * 4;
           const recStartBeat = recBarIndex * 4;
-          const recEndBeat = recStartBeat + LOOP_BEATS;     // 4 bars after
+          const recEndBeat = recStartBeat + LOOP_BEATS;     // 4 bars
 
           const countInStartTime = transportStartTime + countInStartBeat * BEAT_DUR;
           recStartTime = transportStartTime + recStartBeat * BEAT_DUR;
           recEndTime = transportStartTime + recEndBeat * BEAT_DUR;
+
+          // anchor recording grid to global step index at rec start
+          recStartGlobalStep = timeToGlobalStep(recStartTime);
 
           recState = "count-in";
           recordBtn.classList.add("recording");
@@ -1029,7 +1049,7 @@
         });
       }
 
-      // Pointer/touch interaction + recording hooks
+      // Pointer/touch interaction + recording hooks (monophonic)
       let pointerDown = false;
       let activeTouchId = null;
       let activeKeyEl = null;
