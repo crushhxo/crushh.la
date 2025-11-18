@@ -1160,12 +1160,12 @@
         const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
         if (btn) {
           drumButtons[part] = btn;
-          // Initialize button state based on current mute state
-          // active = not muted (sound is playing)
-          btn.classList.toggle("active", !drumMuted[part]);
+          // Initialize button state: white = not muted (active), black = muted
+          // active class = muted (black)
+          btn.classList.toggle("active", drumMuted[part]);
           btn.addEventListener("click", () => {
             drumMuted[part] = !drumMuted[part];
-            btn.classList.toggle("active", !drumMuted[part]);
+            btn.classList.toggle("active", drumMuted[part]);
           });
         }
         const sel = document.querySelector(`.drum-select[data-part="${part}"]`);
