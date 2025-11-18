@@ -835,6 +835,7 @@
         }
         // Clear sequencer voice when transport stops
         sequencerVoice = null;
+        lastSequencerFreq = null;
       }
 
       // --- SCALE: A major, note → freq map ---
@@ -894,7 +895,7 @@
 
       // --- LIVE SYNTH VOICE (monophonic) ---
       let currentVoice = null;
-      const glideTime = 0.08;
+      const glideTime = 0.15; // Increased for smoother, more fluid transitions
 
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
@@ -1054,6 +1055,7 @@
       
       // Sequencer voice for portamento (separate from live voice)
       let sequencerVoice = null;
+      let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
       function scheduleSynthForStep(globalStep, when) {
         if (recState !== "playing") return;
@@ -1078,23 +1080,31 @@
         const t0 = Math.max(startTime, ctx.currentTime);
         const now = ctx.currentTime;
 
-        // If there's a currently playing sequencer voice and it's still active, glide from it to the new note
+        // Always use portamento - glide from last frequency (or current if voice is active)
+        let startFreq = freq;
+        if (sequencerVoice && sequencerVoice.osc && sequencerVoice.noteEndTime > now) {
+          // Voice is still active, use its current frequency
+          startFreq = sequencerVoice.osc.frequency.value;
+        } else if (lastSequencerFreq !== null) {
+          // Voice ended, but we have the last frequency - always glide from it
+          startFreq = lastSequencerFreq;
+        }
+
+        // If there's a currently playing sequencer voice and it's still active, reuse it
         if (sequencerVoice && sequencerVoice.osc && sequencerVoice.noteEndTime > now) {
           const { osc, gain } = sequencerVoice;
           
-          // Get current frequency
-          const currentFreq = osc.frequency.value;
-          
           // Cancel any scheduled frequency changes
           osc.frequency.cancelScheduledValues(now);
-          osc.frequency.setValueAtTime(currentFreq, now);
+          osc.frequency.setValueAtTime(startFreq, now);
           
-          // Glide to new frequency
+          // Smooth glide to new frequency with exponential curve for fluid feel
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
           sequencerVoice.currentFreq = freq;
           sequencerVoice.noteEndTime = t0 + durationSeconds;
+          lastSequencerFreq = freq;
           
           // Update gain envelope for the new note duration
           gain.gain.cancelScheduledValues(now);
@@ -1127,13 +1137,20 @@
           return;
         }
 
-        // No existing voice, create new one
+        // No existing active voice, create new one but always start from last frequency if available
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const distortion = ctx.createWaveShaper();
 
         osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(freq, t0);
+        
+        // Always start from last frequency and glide to new one for fluid transitions
+        if (startFreq !== freq) {
+          osc.frequency.setValueAtTime(startFreq, t0);
+          osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
+        } else {
+          osc.frequency.setValueAtTime(freq, t0);
+        }
 
         distortion.curve = createDistortionCurve(4);
         distortion.oversample = "2x";
@@ -1160,11 +1177,13 @@
         
         // Store the sequencer voice for portamento
         sequencerVoice = { osc, gain, currentFreq: freq, noteEndTime: t0 + total };
+        lastSequencerFreq = freq;
         
-        // Clean up when note ends
+        // Clean up when note ends, but keep last frequency for next note
         setTimeout(() => {
           if (sequencerVoice && sequencerVoice.osc === osc) {
             sequencerVoice = null;
+            // Keep lastSequencerFreq for always-on portamento
           }
         }, (total + 0.05) * 1000);
       }
