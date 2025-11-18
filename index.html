@@ -360,11 +360,10 @@
     .drum-grid {
       margin: 0 auto;
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      grid-template-rows: repeat(4, 1fr);
-      gap: 8px;
-      width: 260px; /* match piano width */
-      aspect-ratio: 1; /* keep squares */
+      grid-template-columns: repeat(4, minmax(12px, 1fr));
+      grid-template-rows: repeat(4, 16px);
+      gap: 3px;
+      max-width: 120px; /* narrower blocks */
     }
 
     .drum-cell {
@@ -374,22 +373,12 @@
       box-sizing: border-box;
       cursor: pointer;
       transition: background 90ms ease, border-color 90ms ease, transform 90ms ease;
-      aspect-ratio: 1; /* keep squares */
-    }
-
-    .drum-cell.downbeat {
-      background: #e0e0e0; /* darker grey for downbeats */
     }
 
     .drum-cell.active {
       background: #111111;
       border-color: #111111;
       transform: translateY(1px);
-    }
-
-    .drum-cell.downbeat.active {
-      background: #111111;
-      border-color: #111111;
     }
 
     .ringer-note {
@@ -1155,10 +1144,6 @@
             const idx = row * 4 + col; // step index 0..15
             const cell = document.createElement("div");
             cell.className = "drum-cell";
-            // Mark downbeats: first step of each beat (steps 0, 4, 8, 12 = beat 1.1, 2.1, 3.1, 4.1)
-            if (col === 0) {
-              cell.classList.add("downbeat");
-            }
             cell.dataset.step = idx.toString();
             cell.addEventListener("click", () => {
               const current = drumPatterns[part][idx];
