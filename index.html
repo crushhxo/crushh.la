@@ -727,9 +727,9 @@
         transportStartTime = now + 0.15;
         transportRunning = true;
 
-        const rel = 0;
+        // Start at step 0, schedule it at transportStartTime
         globalStepCounter = 0;
-        nextStepTime = transportStartTime + STEP_DUR;
+        nextStepTime = transportStartTime;
         lastQuarterVisual = null;
 
         if (!stepTimer) {
@@ -740,7 +740,6 @@
             const lookahead = 0.1;
 
             while (nextStepTime <= now2 + lookahead) {
-              globalStepCounter++;
               const localStep = globalStepCounter % TOTAL_STEPS;
 
               // visual 16 quarter notes over 4 bars
@@ -758,6 +757,8 @@
               scheduleDrumsForStep(localStep, nextStepTime);
               scheduleSynthForStep(localStep, nextStepTime);
 
+              // Increment AFTER scheduling so step 0 plays at transportStartTime
+              globalStepCounter++;
               nextStepTime += STEP_DUR;
             }
           }, 25);
@@ -1308,8 +1309,9 @@
             transportStartTime = countInEnd;
             transportRunning = true;
 
+            // Start at step 0, schedule it at transportStartTime
             globalStepCounter = 0;
-            nextStepTime = transportStartTime + STEP_DUR;
+            nextStepTime = transportStartTime;
             lastQuarterVisual = null;
 
             if (!stepTimer) {
@@ -1320,7 +1322,6 @@
                 const lookahead = 0.1;
 
                 while (nextStepTime <= now2 + lookahead) {
-                  globalStepCounter++;
                   const localStep = globalStepCounter % TOTAL_STEPS;
 
                   if (stepDots.length) {
@@ -1336,6 +1337,8 @@
                   scheduleDrumsForStep(localStep, nextStepTime);
                   scheduleSynthForStep(localStep, nextStepTime);
 
+                  // Increment AFTER scheduling so step 0 plays at transportStartTime
+                  globalStepCounter++;
                   nextStepTime += STEP_DUR;
                 }
               }, 25);
