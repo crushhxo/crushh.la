@@ -362,6 +362,28 @@
 
       let audioCtx = null;
 
+      // *** iOS Safari / iOS Chrome audio unlock ***
+      function unlockAudio() {
+        try {
+          if (!audioCtx) {
+            audioCtx = new AudioContext();
+          }
+          if (audioCtx.state === "suspended") {
+            audioCtx.resume();
+          }
+        } catch (e) {
+          console.warn("Audio unlock failed:", e);
+        } finally {
+          // Only need to unlock once
+          window.removeEventListener("touchstart", unlockAudio);
+          window.removeEventListener("mousedown", unlockAudio);
+        }
+      }
+
+      // First user interaction: unlock audio for iOS Safari + Chrome
+      window.addEventListener("touchstart", unlockAudio, { passive: true });
+      window.addEventListener("mousedown", unlockAudio);
+
       function ensureAudioReady(callback) {
         if (!audioCtx) {
           audioCtx = new AudioContext();
@@ -369,12 +391,11 @@
         if (audioCtx.state === "running") {
           callback(audioCtx);
         } else {
-          // On iOS, resume() must be called inside a user gesture; our callers
-          // are triggered from touch/mouse events, so this is safe.
+          // Fallback – usually won't be needed once unlocked
           audioCtx.resume().then(() => {
             callback(audioCtx);
           }).catch(() => {
-            // if resume fails, just bail silently
+            // ignore
           });
         }
       }
