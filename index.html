@@ -1,3 +1,19 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+contact@crushh.la
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -352,52 +368,12 @@
       }
     });
 
-    // Web Audio saw synth C1–C2 with glide + sliding
+    // Web Audio saw synth C1–C2 with glide + sliding, iOS-safe
     document.addEventListener("DOMContentLoaded", () => {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) {
         console.warn("Web Audio API not supported in this browser.");
         return;
-      }
-
-      let audioCtx = null;
-
-      // *** iOS Safari / iOS Chrome audio unlock ***
-      function unlockAudio() {
-        try {
-          if (!audioCtx) {
-            audioCtx = new AudioContext();
-          }
-          if (audioCtx.state === "suspended") {
-            audioCtx.resume();
-          }
-        } catch (e) {
-          console.warn("Audio unlock failed:", e);
-        } finally {
-          // Only need to unlock once
-          window.removeEventListener("touchstart", unlockAudio);
-          window.removeEventListener("mousedown", unlockAudio);
-        }
-      }
-
-      // First user interaction: unlock audio for iOS Safari + Chrome
-      window.addEventListener("touchstart", unlockAudio, { passive: true });
-      window.addEventListener("mousedown", unlockAudio);
-
-      function ensureAudioReady(callback) {
-        if (!audioCtx) {
-          audioCtx = new AudioContext();
-        }
-        if (audioCtx.state === "running") {
-          callback(audioCtx);
-        } else {
-          // Fallback – usually won't be needed once unlocked
-          audioCtx.resume().then(() => {
-            callback(audioCtx);
-          }).catch(() => {
-            // ignore
-          });
-        }
       }
 
       // Note → frequency map (C1–C2) with sharps
@@ -422,7 +398,6 @@
         const n = 44100;
         const curve = new Float32Array(n);
         let x;
-        // Simple symmetric soft clip: keeps one clear voice, adds gentle crunch
         const norm = Math.tanh(k);
         for (let i = 0; i < n; ++i) {
           x = (i * 2) / n - 1; // -1..1
@@ -431,66 +406,74 @@
         return curve;
       }
 
+      let audioCtx = null;
       let currentVoice = null; // { osc, gain }
-      let activeKeyEl = null;
       const glideTime = 0.08; // ~80ms glide between notes
+
+      function getAudio() {
+        if (!audioCtx) {
+          audioCtx = new AudioContextCtor();
+        }
+        if (audioCtx.state !== "running") {
+          try {
+            audioCtx.resume();
+          } catch (e) {
+            // ignore resume errors
+          }
+        }
+        return audioCtx;
+      }
 
       function startOrGlideToNote(note) {
         const freq = noteFreq[note];
         if (!freq) return;
 
-        ensureAudioReady((ctx) => {
-          const now = ctx.currentTime;
+        const ctx = getAudio();
+        const now = ctx.currentTime;
 
-          if (!currentVoice) {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            const distortion = ctx.createWaveShaper();
+        if (!currentVoice) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const distortion = ctx.createWaveShaper();
 
-            osc.type = "sawtooth";
-            osc.frequency.setValueAtTime(freq, now);
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(freq, now);
 
-            // simple symmetric soft distortion, low drive for a single clear voice
-            distortion.curve = createDistortionCurve(4);
-            distortion.oversample = "2x";
+          distortion.curve = createDistortionCurve(4);
+          distortion.oversample = "2x";
 
-            // quick attack, then hold at steady level
-            gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+          gain.gain.setValueAtTime(0, now);
+          gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
 
-            osc.connect(distortion);
-            distortion.connect(gain);
-            gain.connect(ctx.destination);
+          osc.connect(distortion);
+          distortion.connect(gain);
+          gain.connect(ctx.destination);
 
-            osc.start(now);
+          osc.start(now);
 
-            currentVoice = { osc, gain };
-          } else {
-            const { osc } = currentVoice;
-            osc.frequency.cancelScheduledValues(now);
-            const currentFreq = osc.frequency.value;
-            osc.frequency.setValueAtTime(currentFreq, now);
-            // glide to new frequency
-            osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
-          }
-        });
+          currentVoice = { osc, gain };
+        } else {
+          const { osc } = currentVoice;
+          osc.frequency.cancelScheduledValues(now);
+          const currentFreq = osc.frequency.value;
+          osc.frequency.setValueAtTime(currentFreq, now);
+          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+        }
       }
 
       function stopCurrentVoice() {
         if (!currentVoice) return;
 
-        ensureAudioReady((ctx) => {
-          const { osc, gain } = currentVoice;
-          const now = ctx.currentTime;
+        const ctx = getAudio();
+        const now = ctx.currentTime;
+        const { osc, gain } = currentVoice;
 
-          // short decay on release
-          gain.gain.cancelScheduledValues(now);
-          gain.gain.setValueAtTime(gain.gain.value, now);
-          gain.gain.linearRampToValueAtTime(0, now + 0.06);
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.06);
 
-          osc.stop(now + 0.07);
-          currentVoice = null;
-        });
+        osc.stop(now + 0.07);
+        currentVoice = null;
       }
 
       const piano = document.querySelector(".piano");
@@ -499,6 +482,7 @@
 
       let pointerDown = false;
       let activeTouchId = null;
+      let activeKeyEl = null;
 
       function setActiveKey(newKey) {
         if (activeKeyEl === newKey) return;
