@@ -148,6 +148,38 @@
       transform: translateY(1px);
     }
 
+    .seq-controls {
+      margin-top: 6px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .seq-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.12em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .seq-button.recording {
+      background: #b80000;
+      border-color: #b80000;
+      color: #f7f7f7;
+      transform: translateY(1px);
+    }
+
+    .seq-button.looping {
+      background: #111111;
+      border-color: #111111;
+      color: #f7f7f7;
+    }
+
     @keyframes pianoFloat {
       0% { transform: translateY(0); }
       100% { transform: translateY(-3px); }
@@ -302,6 +334,9 @@
         <button class="drum-button" data-part="snare">snare</button>
         <button class="drum-button" data-part="hats">hats</button>
         <button class="drum-button" data-part="perc">perc</button>
+      </div>
+      <div class="seq-controls">
+        <button class="seq-button" id="seq-record">rec</button>
       </div>
       <div class="ringer-note"><em>ringer must be on to play</em></div>
 
@@ -464,6 +499,33 @@
         C2: 65.41
       };
 
+      // --- Scale lock: A major ---
+      const keyboardOrder = [
+        "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
+      ];
+      const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"]; // A major scale degrees in this range
+      const aMajorSet = new Set(aMajorNotes);
+      const scaleMap = {};
+
+      keyboardOrder.forEach((note, idx) => {
+        if (aMajorSet.has(note)) {
+          scaleMap[note] = note;
+        } else {
+          let best = null;
+          let bestDist = Infinity;
+          aMajorNotes.forEach((n) => {
+            const j = keyboardOrder.indexOf(n);
+            if (j === -1) return;
+            const d = Math.abs(j - idx);
+            if (d < bestDist) {
+              bestDist = d;
+              best = n;
+            }
+          });
+          scaleMap[note] = best || note;
+        }
+      });
+
       function createDistortionCurve(amount) {
         const k = typeof amount === "number" ? amount : 1;
         const n = 44100;
@@ -496,6 +558,15 @@
       const drumSources = {};
       let drumLoopDuration = null;
 
+      // --- Looper state ---
+      let loopStartTime = null;
+      let loopEvents = [];
+      let isRecording = false;
+      let isPlayingPattern = false;
+      let seqTimer = null;
+      let lastLoopPos = 0;
+      const defaultLoopLength = (4 * 4 * 60) / 130; // 4 bars at 130 BPM
+
       async function loadDrumBuffers(ctx) {
         if (drumLoaded || drumLoading) return;
         drumLoading = true;
@@ -523,6 +594,7 @@
         if (Object.keys(drumSources).length) return;
 
         const startTime = ctx.currentTime + 0.05;
+        loopStartTime = startTime;
         for (const part of drumParts) {
           const buffer = drumBuffers[part];
           if (!buffer) continue;
@@ -576,6 +648,103 @@
         }
       }
 
+      // --- Looper/recorder helper functions ---
+      function getLoopLength() {
+        if (drumLoopDuration && drumLoopDuration > 0) return drumLoopDuration;
+        return defaultLoopLength;
+      }
+
+      function getLoopPosition(ctx) {
+        const len = getLoopLength();
+        if (!loopStartTime) {
+          loopStartTime = ctx.currentTime;
+        }
+        const t = ctx.currentTime - loopStartTime;
+        const pos = ((t % len) + len) % len;
+        return pos;
+      }
+
+      function recordNoteIfNeeded(noteName) {
+        if (!isRecording) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        const len = getLoopLength();
+        if (!len) return;
+        const pos = getLoopPosition(ctx);
+        const sixteenth = len / 64; // 16ths over 4 bars
+        let q = Math.round(pos / sixteenth) * sixteenth;
+        if (q >= len) q = 0;
+        loopEvents.push({ time: q, note: noteName });
+      }
+
+      function triggerSeqNote(noteName) {
+        const mapped = scaleMap[noteName] || noteName;
+        const freq = noteFreq[mapped];
+        if (!freq) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const distortion = ctx.createWaveShaper();
+
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(freq, now);
+
+        distortion.curve = createDistortionCurve(4);
+        distortion.oversample = "2x";
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.23, now + 0.01);
+        gain.gain.linearRampToValueAtTime(0, now + 0.2);
+
+        osc.connect(distortion);
+        distortion.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.25);
+      }
+
+      function startPatternPlayback() {
+        if (!loopEvents.length || isPlayingPattern) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        isPlayingPattern = true;
+        lastLoopPos = getLoopPosition(ctx);
+        if (seqTimer) clearInterval(seqTimer);
+        seqTimer = setInterval(() => {
+          const c = getAudio();
+          if (!c || !loopEvents.length) return;
+          const len = getLoopLength();
+          const prev = lastLoopPos;
+          const pos = getLoopPosition(c);
+          lastLoopPos = pos;
+          const wrapped = pos < prev;
+          loopEvents.forEach((evt) => {
+            const t = evt.time;
+            let hit = false;
+            if (wrapped) {
+              if (t >= prev || t <= pos) hit = true;
+            } else {
+              if (t > prev && t <= pos) hit = true;
+            }
+            if (hit) {
+              triggerSeqNote(evt.note);
+            }
+          });
+        }, 30);
+      }
+
+      function stopPatternPlayback() {
+        isPlayingPattern = false;
+        if (seqTimer) {
+          clearInterval(seqTimer);
+          seqTimer = null;
+        }
+      }
+
       function getAudio() {
         initAudioCtx();
         if (!audioCtx) return null;
@@ -590,8 +759,11 @@
       }
 
       function startOrGlideToNote(note) {
-        const freq = noteFreq[note];
+        const mapped = scaleMap[note] || note;
+        const freq = noteFreq[mapped];
         if (!freq) return;
+
+        recordNoteIfNeeded(mapped);
 
         const ctx = getAudio();
         if (!ctx) return;
@@ -655,6 +827,41 @@
           toggleDrumPart(part, btn);
         });
       });
+
+      const recordBtn = document.getElementById("seq-record");
+      if (recordBtn) {
+        recordBtn.addEventListener("click", () => {
+          const ctx = getAudio();
+          if (!ctx) return;
+
+          if (!isRecording && !isPlayingPattern) {
+            // start fresh recording
+            isRecording = true;
+            loopEvents = [];
+            recordBtn.classList.add("recording");
+            recordBtn.classList.remove("looping");
+            recordBtn.textContent = "rec*";
+          } else if (isRecording) {
+            // stop recording & start playback if we have notes
+            isRecording = false;
+            recordBtn.classList.remove("recording");
+            if (loopEvents.length) {
+              startPatternPlayback();
+              recordBtn.classList.add("looping");
+              recordBtn.textContent = "looping";
+            } else {
+              stopPatternPlayback();
+              recordBtn.classList.remove("looping");
+              recordBtn.textContent = "rec";
+            }
+          } else if (!isRecording && isPlayingPattern) {
+            // stop looping & reset
+            stopPatternPlayback();
+            recordBtn.classList.remove("looping");
+            recordBtn.textContent = "rec";
+          }
+        });
+      }
 
       let pointerDown = false;
       let activeTouchId = null;
