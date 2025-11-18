@@ -266,6 +266,48 @@
   </div>
 
   <script>
+    // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
+    let iosAudioUnlocked = false;
+    let audioCtx = null;
+
+    function initAudioCtx() {
+      if (!audioCtx) {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return;
+        audioCtx = new Ctor();
+      }
+    }
+
+    function unlockIOSAudio() {
+      initAudioCtx();
+      if (!audioCtx || iosAudioUnlocked) return;
+      iosAudioUnlocked = true;
+      try {
+        const buffer = audioCtx.createBuffer(1, 1, 44100);
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0); // tiny silent click
+      } catch (e) {
+        console.error("iOS unlock error:", e);
+      }
+    }
+
+    ["touchstart", "touchend", "mousedown"].forEach((evt) => {
+      window.addEventListener(
+        evt,
+        () => {
+          initAudioCtx();
+          if (!audioCtx) return;
+          if (audioCtx.state !== "running") {
+            audioCtx.resume().then(unlockIOSAudio).catch(() => {});
+          } else {
+            unlockIOSAudio();
+          }
+        },
+        { passive: true }
+      );
+    });
     // Crash + flicker logic for logo
     document.addEventListener("DOMContentLoaded", () => {
       const logo = document.querySelector(".logo");        // inner img for flicker
@@ -354,8 +396,7 @@
 
     // Web Audio saw synth C1–C2 with glide + sliding, iOS-safe
     document.addEventListener("DOMContentLoaded", () => {
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextCtor) {
+      if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
         return;
       }
@@ -390,14 +431,12 @@
         return curve;
       }
 
-      let audioCtx = null;
       let currentVoice = null; // { osc, gain }
       const glideTime = 0.08; // ~80ms glide between notes
 
       function getAudio() {
-        if (!audioCtx) {
-          audioCtx = new AudioContextCtor();
-        }
+        initAudioCtx();
+        if (!audioCtx) return null;
         if (audioCtx.state !== "running") {
           try {
             audioCtx.resume();
@@ -413,6 +452,7 @@
         if (!freq) return;
 
         const ctx = getAudio();
+        if (!ctx) return;
         const now = ctx.currentTime;
 
         if (!currentVoice) {
@@ -449,6 +489,7 @@
         if (!currentVoice) return;
 
         const ctx = getAudio();
+        if (!ctx) return;
         const now = ctx.currentTime;
         const { osc, gain } = currentVoice;
 
