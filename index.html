@@ -30,6 +30,53 @@
       transform-style: preserve-3d;
     }
 
+    @media (max-width: 430px) {
+      .center-shell {
+        padding: 20px 12px 20px;
+        min-height: 100vh;
+        align-items: flex-start;
+        padding-top: 16px;
+      }
+
+      .logo-shell {
+        margin-bottom: 16px;
+      }
+
+      .synth {
+        margin-top: 16px;
+      }
+
+      .step-indicator {
+        margin-top: 8px;
+        gap: 3px;
+      }
+
+      .seq-controls {
+        margin-top: 4px;
+      }
+
+      .transport {
+        margin-top: 8px;
+        gap: 4px;
+      }
+
+      .drums {
+        margin-top: 12px;
+        row-gap: 10px;
+        column-gap: 10px;
+      }
+
+      .ringer-note {
+        margin-top: 8px;
+        margin-bottom: 8px;
+        font-size: 10px;
+      }
+
+      .email {
+        margin-top: 8px;
+      }
+    }
+
     .container {
       max-width: 620px;
       width: 100%;
@@ -48,7 +95,7 @@
     /* inner img: only for flicker */
     .logo {
       width: 100%;
-      max-width: 420px;
+      max-width: 260px; /* match piano width */
       height: auto;
       display: block;
       opacity: 1;
