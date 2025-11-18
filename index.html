@@ -148,6 +148,28 @@
       transform: translateY(1px);
     }
 
+    .step-indicator {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      box-sizing: border-box;
+      border: 1px solid #111111;
+      background: #ffffff;
+      transition: background 80ms ease, transform 80ms ease;
+    }
+
+    .step-dot.active {
+      background: #111111;
+      transform: translateY(1px);
+    }
+
     .seq-controls {
       margin-top: 6px;
       display: flex;
@@ -329,15 +351,23 @@
           </div>
         </div>
       </div>
+
+      <!-- 16-step counter -->
+      <div class="step-indicator" id="step-indicator"></div>
+
+      <!-- recorder controls -->
+      <div class="seq-controls">
+        <button class="seq-button" id="seq-record">rec</button>
+      </div>
+
+      <!-- drum toggles -->
       <div class="drum-controls">
         <button class="drum-button" data-part="kick">kick</button>
         <button class="drum-button" data-part="snare">snare</button>
         <button class="drum-button" data-part="hats">hats</button>
         <button class="drum-button" data-part="perc">perc</button>
       </div>
-      <div class="seq-controls">
-        <button class="seq-button" id="seq-record">rec</button>
-      </div>
+
       <div class="ringer-note"><em>ringer must be on to play</em></div>
 
       <div class="email">
@@ -389,6 +419,7 @@
         { passive: true }
       );
     });
+
     // Crash + flicker logic for logo
     document.addEventListener("DOMContentLoaded", () => {
       const logo = document.querySelector(".logo");        // inner img for flicker
@@ -567,6 +598,10 @@
       let lastLoopPos = 0;
       const defaultLoopLength = (4 * 4 * 60) / 130; // 4 bars at 130 BPM
 
+      let stepTimer = null;
+      let lastStepIndex = -1;
+      let stepDots = [];
+
       async function loadDrumBuffers(ctx) {
         if (drumLoaded || drumLoading) return;
         drumLoading = true;
@@ -674,6 +709,13 @@
         const sixteenth = len / 64; // 16ths over 4 bars
         let q = Math.round(pos / sixteenth) * sixteenth;
         if (q >= len) q = 0;
+
+        if (loopEvents.length) {
+          const last = loopEvents[loopEvents.length - 1];
+          if (Math.abs(last.time - q) < 1e-4 && last.note === noteName) {
+            return;
+          }
+        }
         loopEvents.push({ time: q, note: noteName });
       }
 
@@ -696,15 +738,16 @@
         distortion.oversample = "2x";
 
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.23, now + 0.01);
-        gain.gain.linearRampToValueAtTime(0, now + 0.2);
+        gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+        gain.gain.linearRampToValueAtTime(0.18, now + 0.3);
+        gain.gain.linearRampToValueAtTime(0, now + 0.6);
 
         osc.connect(distortion);
         distortion.connect(gain);
         gain.connect(ctx.destination);
 
         osc.start(now);
-        osc.stop(now + 0.25);
+        osc.stop(now + 0.65);
       }
 
       function startPatternPlayback() {
@@ -712,6 +755,7 @@
         const ctx = getAudio();
         if (!ctx) return;
         isPlayingPattern = true;
+        startStepTimer();
         lastLoopPos = getLoopPosition(ctx);
         if (seqTimer) clearInterval(seqTimer);
         seqTimer = setInterval(() => {
@@ -742,6 +786,46 @@
         if (seqTimer) {
           clearInterval(seqTimer);
           seqTimer = null;
+        }
+        if (!isRecording) {
+          stopStepTimer();
+        }
+      }
+
+      function startStepTimer() {
+        const ctx = getAudio();
+        if (!ctx) return;
+        if (stepTimer) return;
+        const len = getLoopLength();
+        const sixteenth = len / 64;
+        stepTimer = setInterval(() => {
+          const c = getAudio();
+          if (!c) return;
+          const pos = getLoopPosition(c);
+          const stepIndex = Math.floor(pos / sixteenth) % 64;
+          if (stepIndex === lastStepIndex) return;
+          lastStepIndex = stepIndex;
+          if (stepDots.length) {
+            const barStep = stepIndex % 16;
+            stepDots.forEach((dot, idx) => {
+              if (idx === barStep) {
+                dot.classList.add("active");
+              } else {
+                dot.classList.remove("active");
+              }
+            });
+          }
+        }, 30);
+      }
+
+      function stopStepTimer() {
+        if (stepTimer) {
+          clearInterval(stepTimer);
+          stepTimer = null;
+        }
+        lastStepIndex = -1;
+        if (stepDots.length) {
+          stepDots.forEach((dot) => dot.classList.remove("active"));
         }
       }
 
@@ -819,6 +903,16 @@
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
 
+      const stepContainer = document.getElementById("step-indicator");
+      if (stepContainer) {
+        for (let i = 0; i < 16; i++) {
+          const dot = document.createElement("div");
+          dot.className = "step-dot";
+          stepContainer.appendChild(dot);
+          stepDots.push(dot);
+        }
+      }
+
       const drumButtons = document.querySelectorAll(".drum-button");
       drumButtons.forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -838,6 +932,7 @@
             // start fresh recording
             isRecording = true;
             loopEvents = [];
+            startStepTimer();
             recordBtn.classList.add("recording");
             recordBtn.classList.remove("looping");
             recordBtn.textContent = "rec*";
@@ -853,12 +948,14 @@
               stopPatternPlayback();
               recordBtn.classList.remove("looping");
               recordBtn.textContent = "rec";
+              stopStepTimer();
             }
           } else if (!isRecording && isPlayingPattern) {
             // stop looping & reset
             stopPatternPlayback();
             recordBtn.classList.remove("looping");
             recordBtn.textContent = "rec";
+            stopStepTimer();
           }
         });
       }
