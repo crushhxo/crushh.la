@@ -301,22 +301,22 @@
 
     .drum-lane[data-part="perc"] {
       grid-column: 1 / -1;
-      max-width: 140px;
+      max-width: 260px;
       margin: 0 auto;
     }
 
     .drum-header {
       display: flex;
-      justify-content: center;
+      justify-content: space-between;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       margin-bottom: 4px;
     }
 
     .drum-button {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: lowercase;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 999px;
       border: 1px solid rgba(0, 0, 0, 0.25);
       background: rgba(0, 0, 0, 0.02);
@@ -324,6 +324,8 @@
       cursor: pointer;
       letter-spacing: 0.08em;
       transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      flex-shrink: 0;
+      min-width: 24px;
     }
 
     .drum-button:hover {
@@ -345,18 +347,20 @@
       background: rgba(0, 0, 0, 0.02);
       color: #111111;
       letter-spacing: 0.08em;
-      text-transform: none; /* keep "sound 1" lowercase */
+      text-transform: none;
       outline: none;
       cursor: pointer;
+      flex-shrink: 0;
+      min-width: 60px;
     }
 
     .drum-grid {
-      margin: 0 auto;
       display: grid;
       grid-template-columns: repeat(4, minmax(12px, 1fr));
       grid-template-rows: repeat(4, 16px);
       gap: 3px;
-      max-width: 120px; /* narrower blocks */
+      width: 120px;
+      flex-shrink: 0;
     }
 
     .drum-cell {
@@ -467,67 +471,67 @@
       <div class="drums">
         <div class="drum-lane" data-part="kick">
           <div class="drum-header">
-            <button class="drum-button" data-part="kick">kick</button>
+            <button class="drum-button" data-part="kick">m</button>
+            <div class="drum-grid" data-part="kick"></div>
             <select class="drum-select" data-part="kick">
-              <option value="1">sound 1</option>
-              <option value="2">sound 2</option>
-              <option value="3">sound 3</option>
-              <option value="4">sound 4</option>
+              <option value="1">kick 1</option>
+              <option value="2">kick 2</option>
+              <option value="3">kick 3</option>
+              <option value="4">kick 4</option>
             </select>
           </div>
-          <div class="drum-grid" data-part="kick"></div>
         </div>
 
         <div class="drum-lane" data-part="snare">
           <div class="drum-header">
-            <button class="drum-button" data-part="snare">snare</button>
+            <button class="drum-button" data-part="snare">m</button>
+            <div class="drum-grid" data-part="snare"></div>
             <select class="drum-select" data-part="snare">
-              <option value="1">sound 1</option>
-              <option value="2">sound 2</option>
-              <option value="3">sound 3</option>
-              <option value="4">sound 4</option>
+              <option value="1">snare 1</option>
+              <option value="2">snare 2</option>
+              <option value="3">snare 3</option>
+              <option value="4">snare 4</option>
             </select>
           </div>
-          <div class="drum-grid" data-part="snare"></div>
         </div>
 
         <div class="drum-lane" data-part="ch">
           <div class="drum-header">
-            <button class="drum-button" data-part="ch">ch</button>
+            <button class="drum-button" data-part="ch">m</button>
+            <div class="drum-grid" data-part="ch"></div>
             <select class="drum-select" data-part="ch">
-              <option value="1">sound 1</option>
-              <option value="2">sound 2</option>
-              <option value="3">sound 3</option>
-              <option value="4">sound 4</option>
+              <option value="1">ch 1</option>
+              <option value="2">ch 2</option>
+              <option value="3">ch 3</option>
+              <option value="4">ch 4</option>
             </select>
           </div>
-          <div class="drum-grid" data-part="ch"></div>
         </div>
 
         <div class="drum-lane" data-part="oh">
           <div class="drum-header">
-            <button class="drum-button" data-part="oh">oh</button>
+            <button class="drum-button" data-part="oh">m</button>
+            <div class="drum-grid" data-part="oh"></div>
             <select class="drum-select" data-part="oh">
-              <option value="1">sound 1</option>
-              <option value="2">sound 2</option>
-              <option value="3">sound 3</option>
-              <option value="4">sound 4</option>
+              <option value="1">oh 1</option>
+              <option value="2">oh 2</option>
+              <option value="3">oh 3</option>
+              <option value="4">oh 4</option>
             </select>
           </div>
-          <div class="drum-grid" data-part="oh"></div>
         </div>
 
         <div class="drum-lane" data-part="perc">
           <div class="drum-header">
-            <button class="drum-button" data-part="perc">perc</button>
+            <button class="drum-button" data-part="perc">m</button>
+            <div class="drum-grid" data-part="perc"></div>
             <select class="drum-select" data-part="perc">
-              <option value="1">sound 1</option>
-              <option value="2">sound 2</option>
-              <option value="3">sound 3</option>
-              <option value="4">sound 4</option>
+              <option value="1">perc 1</option>
+              <option value="2">perc 2</option>
+              <option value="3">perc 3</option>
+              <option value="4">perc 4</option>
             </select>
           </div>
-          <div class="drum-grid" data-part="perc"></div>
         </div>
       </div>
 
