@@ -833,6 +833,8 @@
         if (stepDots.length) {
           stepDots.forEach(dot => dot.classList.remove("active"));
         }
+        // Clear sequencer voice when transport stops
+        sequencerVoice = null;
       }
 
       // --- SCALE: A major, note → freq map ---
@@ -1049,6 +1051,9 @@
       let recStartGlobalStep = 0;
       let pendingNotes = {}; // mappedNote -> { startGlobalStep }
       let currentRecordedNote = null;
+      
+      // Sequencer voice for portamento (separate from live voice)
+      let sequencerVoice = null;
 
       function scheduleSynthForStep(globalStep, when) {
         if (recState !== "playing") return;
@@ -1071,7 +1076,58 @@
         if (!ctx) return;
 
         const t0 = Math.max(startTime, ctx.currentTime);
+        const now = ctx.currentTime;
 
+        // If there's a currently playing sequencer voice and it's still active, glide from it to the new note
+        if (sequencerVoice && sequencerVoice.osc && sequencerVoice.noteEndTime > now) {
+          const { osc, gain } = sequencerVoice;
+          
+          // Get current frequency
+          const currentFreq = osc.frequency.value;
+          
+          // Cancel any scheduled frequency changes
+          osc.frequency.cancelScheduledValues(now);
+          osc.frequency.setValueAtTime(currentFreq, now);
+          
+          // Glide to new frequency
+          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          
+          // Update the sequencer voice to track the new note
+          sequencerVoice.currentFreq = freq;
+          sequencerVoice.noteEndTime = t0 + durationSeconds;
+          
+          // Update gain envelope for the new note duration
+          gain.gain.cancelScheduledValues(now);
+          const currentGain = gain.gain.value;
+          gain.gain.setValueAtTime(currentGain, now);
+          
+          const attack = 0.02;
+          const decay = 0.06;
+          const sustainLevel = 0.22;
+          const total = Math.max(0.08, durationSeconds);
+          const release = 0.08;
+          
+          // Maintain sustain level, then release at the end of the new note
+          if (currentGain > 0.05) {
+            // Already playing, maintain sustain level
+            gain.gain.setValueAtTime(sustainLevel, now);
+            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            gain.gain.linearRampToValueAtTime(0, t0 + total);
+          } else {
+            // Voice was fading, restart envelope
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.23, now + attack);
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            gain.gain.linearRampToValueAtTime(0, t0 + total);
+          }
+          
+          // Schedule oscillator stop for the new note's end time
+          osc.stop(t0 + total + 0.05);
+          return;
+        }
+
+        // No existing voice, create new one
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const distortion = ctx.createWaveShaper();
@@ -1101,6 +1157,16 @@
 
         osc.start(t0);
         osc.stop(t0 + total + 0.05);
+        
+        // Store the sequencer voice for portamento
+        sequencerVoice = { osc, gain, currentFreq: freq, noteEndTime: t0 + total };
+        
+        // Clean up when note ends
+        setTimeout(() => {
+          if (sequencerVoice && sequencerVoice.osc === osc) {
+            sequencerVoice = null;
+          }
+        }, (total + 0.05) * 1000);
       }
 
       function recordNoteOn(mappedNote) {
