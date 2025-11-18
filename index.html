@@ -1160,6 +1160,9 @@
         const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
         if (btn) {
           drumButtons[part] = btn;
+          // Initialize button state based on current mute state
+          // active = not muted (sound is playing)
+          btn.classList.toggle("active", !drumMuted[part]);
           btn.addEventListener("click", () => {
             drumMuted[part] = !drumMuted[part];
             btn.classList.toggle("active", !drumMuted[part]);
