@@ -301,7 +301,7 @@
 
     .drum-lane[data-part="perc"] {
       grid-column: 1 / -1;
-      max-width: 260px;
+      max-width: 140px;
       margin: 0 auto;
     }
 
@@ -309,8 +309,11 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       margin-bottom: 4px;
+      width: 120px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .drum-button {
@@ -355,12 +358,12 @@
     }
 
     .drum-grid {
+      margin: 0 auto;
       display: grid;
       grid-template-columns: repeat(4, minmax(12px, 1fr));
       grid-template-rows: repeat(4, 16px);
       gap: 3px;
-      width: 120px;
-      flex-shrink: 0;
+      max-width: 120px; /* narrower blocks */
     }
 
     .drum-cell {
@@ -472,7 +475,6 @@
         <div class="drum-lane" data-part="kick">
           <div class="drum-header">
             <button class="drum-button" data-part="kick">m</button>
-            <div class="drum-grid" data-part="kick"></div>
             <select class="drum-select" data-part="kick">
               <option value="1">kick 1</option>
               <option value="2">kick 2</option>
@@ -480,12 +482,12 @@
               <option value="4">kick 4</option>
             </select>
           </div>
+          <div class="drum-grid" data-part="kick"></div>
         </div>
 
         <div class="drum-lane" data-part="snare">
           <div class="drum-header">
             <button class="drum-button" data-part="snare">m</button>
-            <div class="drum-grid" data-part="snare"></div>
             <select class="drum-select" data-part="snare">
               <option value="1">snare 1</option>
               <option value="2">snare 2</option>
@@ -493,12 +495,12 @@
               <option value="4">snare 4</option>
             </select>
           </div>
+          <div class="drum-grid" data-part="snare"></div>
         </div>
 
         <div class="drum-lane" data-part="ch">
           <div class="drum-header">
             <button class="drum-button" data-part="ch">m</button>
-            <div class="drum-grid" data-part="ch"></div>
             <select class="drum-select" data-part="ch">
               <option value="1">ch 1</option>
               <option value="2">ch 2</option>
@@ -506,12 +508,12 @@
               <option value="4">ch 4</option>
             </select>
           </div>
+          <div class="drum-grid" data-part="ch"></div>
         </div>
 
         <div class="drum-lane" data-part="oh">
           <div class="drum-header">
             <button class="drum-button" data-part="oh">m</button>
-            <div class="drum-grid" data-part="oh"></div>
             <select class="drum-select" data-part="oh">
               <option value="1">oh 1</option>
               <option value="2">oh 2</option>
@@ -519,12 +521,12 @@
               <option value="4">oh 4</option>
             </select>
           </div>
+          <div class="drum-grid" data-part="oh"></div>
         </div>
 
         <div class="drum-lane" data-part="perc">
           <div class="drum-header">
             <button class="drum-button" data-part="perc">m</button>
-            <div class="drum-grid" data-part="perc"></div>
             <select class="drum-select" data-part="perc">
               <option value="1">perc 1</option>
               <option value="2">perc 2</option>
@@ -532,6 +534,7 @@
               <option value="4">perc 4</option>
             </select>
           </div>
+          <div class="drum-grid" data-part="perc"></div>
         </div>
       </div>
 
