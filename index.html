@@ -526,989 +526,1052 @@
   </div>
 
   <script>
-    // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
-    let iosAudioUnlocked = false;
-    let audioCtx = null;
+  // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
+  let iosAudioUnlocked = false;
+  let audioCtx = null;
 
-    function initAudioCtx() {
-      if (!audioCtx) {
-        const Ctor = window.AudioContext || window.webkitAudioContext;
-        if (!Ctor) return;
-        audioCtx = new Ctor();
-      }
+  function initAudioCtx() {
+    if (!audioCtx) {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return;
+      audioCtx = new Ctor();
     }
+  }
 
-    function unlockIOSAudio() {
-      initAudioCtx();
-      if (!audioCtx || iosAudioUnlocked) return;
-      iosAudioUnlocked = true;
-      try {
-        const buffer = audioCtx.createBuffer(1, 1, 44100);
-        const source = audioCtx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.destination);
-        source.start(0);
-      } catch (e) {
-        console.error("iOS unlock error:", e);
-      }
+  function unlockIOSAudio() {
+    initAudioCtx();
+    if (!audioCtx || iosAudioUnlocked) return;
+    iosAudioUnlocked = true;
+    try {
+      const buffer = audioCtx.createBuffer(1, 1, 44100);
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      source.start(0);
+    } catch (e) {
+      console.error("iOS unlock error:", e);
     }
+  }
 
-    ["touchstart", "touchend", "mousedown"].forEach((evt) => {
-      window.addEventListener(
-        evt,
-        () => {
-          initAudioCtx();
-          if (!audioCtx) return;
-          if (audioCtx.state !== "running") {
-            audioCtx.resume().then(unlockIOSAudio).catch(() => {});
-          } else {
-            unlockIOSAudio();
-          }
-        },
-        { passive: true }
-      );
-    });
-
-    // Crash + flicker logic for logo
-    document.addEventListener("DOMContentLoaded", () => {
-      const logo = document.querySelector(".logo");
-      const shell = document.querySelector(".logo-shell");
-      if (!logo || !shell) return;
-
-      const shouldCrash = sessionStorage.getItem("crushhCrash") === "1";
-      let glitchStarted = false;
-
-      function startGlitch() {
-        if (glitchStarted) return;
-        glitchStarted = true;
-
-        function doGlitch() {
-          const intensity = Math.random();
-          const maxOffset = 3;
-          const maxSkew = 3;
-
-          const dx = (Math.random() - 0.5) * maxOffset * intensity;
-          const dy = (Math.random() - 0.5) * maxOffset * intensity;
-          const skewX = (Math.random() - 0.5) * maxSkew * intensity;
-          const opacity = 0.85 + Math.random() * 0.15;
-
-          logo.style.transition =
-            "transform 90ms ease-out, opacity 90ms ease-out, filter 90ms ease-out";
-          logo.style.opacity = opacity.toString();
-          logo.style.transform = `translate(${dx}px, ${dy}px) skewX(${skewX}deg)`;
-          logo.style.filter =
-            `contrast(${1.1 + intensity * 0.4}) saturate(${1 + intensity * 0.3})`;
-
-          const resetDelay = 140 + Math.random() * 120;
-          setTimeout(() => {
-            logo.style.transform = "translate(0, 0) skewX(0deg)";
-            logo.style.opacity = "1";
-            logo.style.filter = "none";
-          }, resetDelay);
-        }
-
-        function scheduleGlitch() {
-          const delay = 320 + Math.random() * 720;
-          setTimeout(() => {
-            doGlitch();
-            scheduleGlitch();
-          }, delay);
-        }
-
-        scheduleGlitch();
-      }
-
-      if (shouldCrash) {
-        sessionStorage.removeItem("crushhCrash");
-
-        shell.style.opacity = "0";
-        shell.style.transform = "translateZ(950px) scale(2.9) rotateX(16deg)";
-        shell.style.filter = "blur(12px) contrast(1.35)";
-
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            shell.classList.add("crash-in");
-          });
-        });
-
-        shell.addEventListener(
-          "animationend",
-          () => {
-            shell.classList.remove("crash-in");
-            shell.style.opacity = "1";
-            shell.style.transform = "translateZ(0)";
-            shell.style.filter = "none";
-            startGlitch();
-          },
-          { once: true }
-        );
-      } else {
-        shell.classList.add("normal-in");
-        setTimeout(() => {
-          startGlitch();
-        }, 2600);
-      }
-    });
-
-    // Synth, drums, transport + sequencer
-    document.addEventListener("DOMContentLoaded", () => {
-      if (!window.AudioContext && !window.webkitAudioContext) {
-        console.warn("Web Audio API not supported in this browser.");
-        return;
-      }
-
-      // --- GLOBAL TRANSPORT ---
-      const BPM = 130;
-      const BEAT_DUR = 60 / BPM;       // seconds per beat
-      const BARS = 4;
-      const BEATS_PER_BAR = 4;
-      const LOOP_BEATS = BARS * BEATS_PER_BAR; // 16
-      const STEPS_PER_BAR = 16;        // 16ths in one bar
-      const TOTAL_STEPS = STEPS_PER_BAR * BARS; // 64
-      const STEP_DUR = BEAT_DUR / 4;   // 16th note
-
-      let transportStartTime = null;
-      let transportRunning = false;
-      let stepTimer = null;
-      let globalStepCounter = 0;
-      let nextStepTime = 0;
-      let lastQuarterVisual = null;
-
-      function getAudio() {
+  ["touchstart", "touchend", "mousedown"].forEach((evt) => {
+    window.addEventListener(
+      evt,
+      () => {
         initAudioCtx();
-        if (!audioCtx) return null;
+        if (!audioCtx) return;
         if (audioCtx.state !== "running") {
-          try { audioCtx.resume(); } catch (e) {}
-        }
-        return audioCtx;
-      }
-
-      function getLoopPositionBeats(time) {
-        if (transportStartTime === null) return 0;
-        const elapsed = Math.max(0, time - transportStartTime);
-        const loopDurSec = LOOP_BEATS * BEAT_DUR;
-        const beats = elapsed / BEAT_DUR;
-        return ((beats % LOOP_BEATS) + LOOP_BEATS) % LOOP_BEATS;
-      }
-
-      function timeToGlobalStep(time) {
-        if (transportStartTime === null) return 0;
-        const elapsed = Math.max(0, time - transportStartTime);
-        const stepFloat = elapsed / STEP_DUR;
-        return Math.round(stepFloat);
-      }
-
-      function startTransport() {
-        const ctx = getAudio();
-        if (!ctx) return;
-        const now = ctx.currentTime;
-
-        transportStartTime = now + 0.15;
-        transportRunning = true;
-
-        const rel = 0;
-        globalStepCounter = 0;
-        nextStepTime = transportStartTime + STEP_DUR;
-        lastQuarterVisual = null;
-
-        if (!stepTimer) {
-          stepTimer = setInterval(() => {
-            const c = getAudio();
-            if (!c || !transportRunning) return;
-            const now2 = c.currentTime;
-            const lookahead = 0.1;
-
-            while (nextStepTime <= now2 + lookahead) {
-              globalStepCounter++;
-              const localStep = globalStepCounter % TOTAL_STEPS;
-
-              // visual 16 quarter notes over 4 bars
-              if (stepDots.length) {
-                const quarterIndex = Math.floor(localStep / 4); // 0..15
-                if (quarterIndex !== lastQuarterVisual) {
-                  stepDots.forEach((dot, idx) => {
-                    dot.classList.toggle("active", idx === quarterIndex);
-                  });
-                  lastQuarterVisual = quarterIndex;
-                }
-              }
-
-              // schedule drums & synth notes for this step
-              scheduleDrumsForStep(localStep, nextStepTime);
-              scheduleSynthForStep(localStep, nextStepTime);
-
-              nextStepTime += STEP_DUR;
-            }
-          }, 25);
-        }
-      }
-
-      function stopTransport() {
-        transportRunning = false;
-        if (stepTimer) {
-          clearInterval(stepTimer);
-          stepTimer = null;
-        }
-        lastQuarterVisual = null;
-        globalStepCounter = 0;
-        if (stepDots.length) {
-          stepDots.forEach(dot => dot.classList.remove("active"));
-        }
-      }
-
-      // --- SCALE: A major, note → freq map ---
-      const noteFreq = {
-        C1: 32.70,
-        "C#1": 34.65,
-        D1: 36.71,
-        "D#1": 38.89,
-        E1: 41.20,
-        F1: 43.65,
-        "F#1": 46.25,
-        G1: 49.00,
-        "G#1": 51.91,
-        A1: 55.00,
-        "A#1": 58.27,
-        B1: 61.74,
-        C2: 65.41
-      };
-
-      const keyboardOrder = [
-        "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
-      ];
-      const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"];
-      const aMajorSet = new Set(aMajorNotes);
-      const scaleMap = {};
-      keyboardOrder.forEach((note, idx) => {
-        if (aMajorSet.has(note)) {
-          scaleMap[note] = note;
+          audioCtx.resume().then(unlockIOSAudio).catch(() => {});
         } else {
-          let best = null;
-          let bestDist = Infinity;
-          aMajorNotes.forEach((n) => {
-            const j = keyboardOrder.indexOf(n);
-            if (j === -1) return;
-            const d = Math.abs(j - idx);
-            if (d < bestDist) {
-              bestDist = d;
-              best = n;
-            }
-          });
-          scaleMap[note] = best || note;
+          unlockIOSAudio();
         }
+      },
+      { passive: true }
+    );
+  });
+
+  // Crash + flicker logic for logo
+  document.addEventListener("DOMContentLoaded", () => {
+    const logo = document.querySelector(".logo");
+    const shell = document.querySelector(".logo-shell");
+    if (!logo || !shell) return;
+
+    const shouldCrash = sessionStorage.getItem("crushhCrash") === "1";
+    let glitchStarted = false;
+
+    function startGlitch() {
+      if (glitchStarted) return;
+      glitchStarted = true;
+
+      function doGlitch() {
+        const intensity = Math.random();
+        const maxOffset = 3;
+        const maxSkew = 3;
+
+        const dx = (Math.random() - 0.5) * maxOffset * intensity;
+        const dy = (Math.random() - 0.5) * maxOffset * intensity;
+        const skewX = (Math.random() - 0.5) * maxSkew * intensity;
+        const opacity = 0.85 + Math.random() * 0.15;
+
+        logo.style.transition =
+          "transform 90ms ease-out, opacity 90ms ease-out, filter 90ms ease-out";
+        logo.style.opacity = opacity.toString();
+        logo.style.transform = `translate(${dx}px, ${dy}px) skewX(${skewX}deg)`;
+        logo.style.filter =
+          `contrast(${1.1 + intensity * 0.4}) saturate(${1 + intensity * 0.3})`;
+
+        const resetDelay = 140 + Math.random() * 120;
+        setTimeout(() => {
+          logo.style.transform = "translate(0, 0) skewX(0deg)";
+          logo.style.opacity = "1";
+          logo.style.filter = "none";
+        }, resetDelay);
+      }
+
+      function scheduleGlitch() {
+        const delay = 320 + Math.random() * 720;
+        setTimeout(() => {
+          doGlitch();
+          scheduleGlitch();
+        }, delay);
+      }
+
+      scheduleGlitch();
+    }
+
+    if (shouldCrash) {
+      sessionStorage.removeItem("crushhCrash");
+
+      shell.style.opacity = "0";
+      shell.style.transform = "translateZ(950px) scale(2.9) rotateX(16deg)";
+      shell.style.filter = "blur(12px) contrast(1.35)";
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          shell.classList.add("crash-in");
+        });
       });
 
-      function createDistortionCurve(amount) {
-        const k = typeof amount === "number" ? amount : 1;
-        const n = 44100;
-        const curve = new Float32Array(n);
-        let x;
-        const norm = Math.tanh(k);
-        for (let i = 0; i < n; ++i) {
-          x = (i * 2) / n - 1;
-          curve[i] = Math.tanh(k * x) / norm;
-        }
-        return curve;
+      shell.addEventListener(
+        "animationend",
+        () => {
+          shell.classList.remove("crash-in");
+          shell.style.opacity = "1";
+          shell.style.transform = "translateZ(0)";
+          shell.style.filter = "none";
+          startGlitch();
+        },
+        { once: true }
+      );
+    } else {
+      shell.classList.add("normal-in");
+      setTimeout(() => {
+        startGlitch();
+      }, 2600);
+    }
+  });
+
+  // Synth, drums, transport + sequencer
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!window.AudioContext && !window.webkitAudioContext) {
+      console.warn("Web Audio API not supported in this browser.");
+      return;
+    }
+
+    function getAudio() {
+      initAudioCtx();
+      if (!audioCtx) return null;
+      if (audioCtx.state !== "running") {
+        try { audioCtx.resume(); } catch (e) {}
       }
+      return audioCtx;
+    }
 
-      // --- LIVE SYNTH VOICE (monophonic) ---
-      let currentVoice = null;
-      const glideTime = 0.08;
+    // --- GLOBAL TRANSPORT ---
+    const BPM = 130;
+    const BEAT_DUR = 60 / BPM;       // seconds per beat
+    const BARS = 4;
+    const BEATS_PER_BAR = 4;
+    const LOOP_BEATS = BARS * BEATS_PER_BAR; // 16
+    const STEPS_PER_BAR = 16;        // 16ths in one bar
+    const TOTAL_STEPS = STEPS_PER_BAR * BARS; // 64
+    const STEP_DUR = BEAT_DUR / 4;   // 16th note
 
-      function startOrGlideToNote(rawNote) {
-        const mapped = scaleMap[rawNote] || rawNote;
-        const freq = noteFreq[mapped];
-        if (!freq) return;
+    let transportStartTime = null;
+    let transportRunning = false;
+    let stepTimer = null;
+    let globalStepCounter = 0;
+    let nextStepTime = 0;
+    let lastQuarterVisual = null;
 
-        const ctx = getAudio();
-        if (!ctx) return;
-        const now = ctx.currentTime;
+    function getLoopPositionBeats(time) {
+      if (transportStartTime === null) return 0;
+      const elapsed = Math.max(0, time - transportStartTime);
+      const loopDurSec = LOOP_BEATS * BEAT_DUR;
+      const beats = elapsed / BEAT_DUR;
+      return ((beats % LOOP_BEATS) + LOOP_BEATS) % LOOP_BEATS;
+    }
 
-        if (!currentVoice) {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          const distortion = ctx.createWaveShaper();
+    function timeToGlobalStep(time) {
+      if (transportStartTime === null) return 0;
+      const elapsed = Math.max(0, time - transportStartTime);
+      const stepFloat = elapsed / STEP_DUR;
+      return Math.round(stepFloat);
+    }
 
-          osc.type = "sawtooth";
-          osc.frequency.setValueAtTime(freq, now);
+    function startTransport() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
 
-          distortion.curve = createDistortionCurve(4);
-          distortion.oversample = "2x";
+      transportStartTime = now + 0.15;
+      transportRunning = true;
 
-          gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+      globalStepCounter = 0;
+      nextStepTime = transportStartTime + STEP_DUR;
+      lastQuarterVisual = null;
 
-          osc.connect(distortion);
-          distortion.connect(gain);
-          gain.connect(ctx.destination);
+      if (!stepTimer) {
+        stepTimer = setInterval(() => {
+          const c = getAudio();
+          if (!c || !transportRunning) return;
+          const now2 = c.currentTime;
+          const lookahead = 0.1;
 
-          osc.start(now);
+          while (nextStepTime <= now2 + lookahead) {
+            globalStepCounter++;
+            const localStep = globalStepCounter % TOTAL_STEPS;
 
-          currentVoice = { osc, gain };
-        } else {
-          const { osc } = currentVoice;
-          osc.frequency.cancelScheduledValues(now);
-          const currentFreq = osc.frequency.value;
-          osc.frequency.setValueAtTime(currentFreq, now);
-          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
-        }
-      }
-
-      function stopCurrentVoice() {
-        if (!currentVoice) return;
-        const ctx = getAudio();
-        if (!ctx) return;
-        const now = ctx.currentTime;
-        const { osc, gain } = currentVoice;
-
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.linearRampToValueAtTime(0, now + 0.06);
-
-        osc.stop(now + 0.07);
-        currentVoice = null;
-      }
-
-      // --- DRUMS: one-shots, 1-bar patterns ---
-      const drumParts = ["kick","snare","ch","oh","perc"];
-      const drumFiles = {
-        kick: ["sounds2/Kick1.wav","sounds2/Kick2.wav","sounds2/Kick3.wav","sounds2/Kick4.wav"],
-        snare:["sounds2/Snare1.wav","sounds2/Snare2.wav","sounds2/Snare3.wav","sounds2/Snare4.wav"],
-        ch:   ["sounds2/CH1.wav","sounds2/CH2.wav","sounds2/CH3.wav","sounds2/CH4.wav"],
-        oh:   ["sounds2/OH1.wav","sounds2/OH2.wav","sounds2/OH3.wav","sounds2/OH4.wav"],
-        perc: ["sounds2/Perc1.wav","sounds2/Perc2.wav","sounds2/Perc3.wav","sounds2/Perc4.wav"]
-      };
-
-      let drumBuffers = {
-        kick: [null,null,null,null],
-        snare:[null,null,null,null],
-        ch:   [null,null,null,null],
-        oh:   [null,null,null,null],
-        perc: [null,null,null,null]
-      };
-
-      let drumLoaded = false;
-      let drumLoading = false;
-
-      const drumPatterns = {
-        kick: new Array(16).fill(false),
-        snare:new Array(16).fill(false),
-        ch:   new Array(16).fill(false),
-        oh:   new Array(16).fill(false),
-        perc: new Array(16).fill(false)
-      };
-
-      const drumMuted = {
-        kick: false,
-        snare:false,
-        ch:   false,
-        oh:   false,
-        perc: false
-      };
-
-      const drumVariantIndex = {
-        kick: 0,
-        snare:0,
-        ch:   0,
-        oh:   0,
-        perc: 0
-      };
-
-      async function loadDrumBuffers(ctx) {
-        if (drumLoaded || drumLoading) return;
-        drumLoading = true;
-        try {
-          for (const part of drumParts) {
-            const urls = drumFiles[part];
-            for (let i = 0; i < urls.length; i++) {
-              const res = await fetch(urls[i]);
-              const arr = await res.arrayBuffer();
-              drumBuffers[part][i] = await ctx.decodeAudioData(arr);
+            // visual 16 quarter notes over 4 bars
+            if (stepDots.length) {
+              const quarterIndex = Math.floor(localStep / 4); // 0..15
+              if (quarterIndex !== lastQuarterVisual) {
+                stepDots.forEach((dot, idx) => {
+                  dot.classList.toggle("active", idx === quarterIndex);
+                });
+                lastQuarterVisual = quarterIndex;
+              }
             }
+
+            // schedule drums & synth notes for this step
+            scheduleDrumsForStep(localStep, nextStepTime);
+            scheduleSynthForStep(localStep, nextStepTime);
+
+            nextStepTime += STEP_DUR;
           }
-          drumLoaded = true;
-        } catch (e) {
-          console.warn("Error loading drum one-shots:", e);
-        } finally {
-          drumLoading = false;
-        }
+        }, 25);
       }
+    }
 
-      function scheduleDrumsForStep(globalStep, when) {
-        if (!drumLoaded) return;
-        const ctx = getAudio();
-        if (!ctx) return;
-
-        // drums: 1-bar 16-step pattern, repeating across 4 bars
-        const localStep = globalStep % 16;
-
-        for (const part of drumParts) {
-          if (drumMuted[part]) continue;
-          if (!drumPatterns[part][localStep]) continue;
-
-          const variant = drumVariantIndex[part] || 0;
-          const buffer = drumBuffers[part][variant];
-          if (!buffer) continue;
-
-          const src = ctx.createBufferSource();
-          const gain = ctx.createGain();
-
-          src.buffer = buffer;
-          gain.gain.setValueAtTime(0.4, when); // medium volume
-
-          src.connect(gain);
-          gain.connect(ctx.destination);
-          src.start(when);
-        }
+    function stopTransport() {
+      transportRunning = false;
+      if (stepTimer) {
+        clearInterval(stepTimer);
+        stepTimer = null;
       }
-
-      // --- SYNTH SEQUENCER (64-step mono pattern) ---
-      let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSteps}
-      let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
-      let recStartTime = null;
-      let recEndTime = null;
-      let recStartGlobalStep = 0;
-      let pendingNotes = {}; // mappedNote -> { startGlobalStep }
-      let currentRecordedNote = null;
-
-      function scheduleSynthForStep(globalStep, when) {
-        if (recState !== "playing") return;
-        const localStep = globalStep % TOTAL_STEPS;
-        const evt = synthPattern[localStep];
-        if (!evt) return;
-
-        const duration = evt.lengthSteps * STEP_DUR;
-        triggerSeqNote(evt.note, duration, when);
+      lastQuarterVisual = null;
+      globalStepCounter = 0;
+      if (stepDots.length) {
+        stepDots.forEach(dot => dot.classList.remove("active"));
       }
+    }
 
-      function triggerSeqNote(noteName, durationSeconds, startTime) {
-        const mapped = scaleMap[noteName] || noteName;
-        const freq = noteFreq[mapped];
-        if (!freq) return;
-        const ctx = getAudio();
-        if (!ctx) return;
+    // --- SCALE: A major, note → freq map ---
+    const noteFreq = {
+      C1: 32.70,
+      "C#1": 34.65,
+      D1: 36.71,
+      "D#1": 38.89,
+      E1: 41.20,
+      F1: 43.65,
+      "F#1": 46.25,
+      G1: 49.00,
+      "G#1": 51.91,
+      A1: 55.00,
+      "A#1": 58.27,
+      B1: 61.74,
+      C2: 65.41
+    };
 
-        const t0 = Math.max(startTime, ctx.currentTime);
+    const keyboardOrder = [
+      "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
+    ];
+    const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"];
+    const aMajorSet = new Set(aMajorNotes);
+    const scaleMap = {};
+    keyboardOrder.forEach((note, idx) => {
+      if (aMajorSet.has(note)) {
+        scaleMap[note] = note;
+      } else {
+        let best = null;
+        let bestDist = Infinity;
+        aMajorNotes.forEach((n) => {
+          const j = keyboardOrder.indexOf(n);
+          if (j === -1) return;
+          const d = Math.abs(j - idx);
+          if (d < bestDist) {
+            bestDist = d;
+            best = n;
+          }
+        });
+        scaleMap[note] = best || note;
+      }
+    });
 
+    function createDistortionCurve(amount) {
+      const k = typeof amount === "number" ? amount : 1;
+      const n = 44100;
+      const curve = new Float32Array(n);
+      let x;
+      const norm = Math.tanh(k);
+      for (let i = 0; i < n; ++i) {
+        x = (i * 2) / n - 1;
+        curve[i] = Math.tanh(k * x) / norm;
+      }
+      return curve;
+    }
+
+    // --- Metronome (20% volume clicks on beats during count-in + recording) ---
+    function metronomeClick(atTime) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const when = Math.max(now, atTime);
+      if (when - now > 8) return; // safety
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "square";
+      osc.frequency.setValueAtTime(2000, when);
+
+      const dur = 0.05;
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(0.2, when + 0.005);
+      gain.gain.linearRampToValueAtTime(0, when + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(when);
+      osc.stop(when + dur + 0.02);
+    }
+
+    // --- LIVE SYNTH VOICE (monophonic) ---
+    let currentVoice = null;
+    const glideTime = 0.08;
+
+    function startOrGlideToNote(rawNote) {
+      const mapped = scaleMap[rawNote] || rawNote;
+      const freq = noteFreq[mapped];
+      if (!freq) return;
+
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+
+      if (!currentVoice) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const distortion = ctx.createWaveShaper();
 
         osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(freq, t0);
+        osc.frequency.setValueAtTime(freq, now);
 
         distortion.curve = createDistortionCurve(4);
         distortion.oversample = "2x";
 
-        const attack = 0.02;
-        const decay = 0.06;
-        const sustainLevel = 0.22;
-        const total = Math.max(0.08, durationSeconds);
-        const release = 0.08;
-        const sustainTime = Math.max(0, total - (attack + decay + release));
-
-        gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(0.23, t0 + attack);
-        gain.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + decay);
-        gain.gain.setValueAtTime(sustainLevel, t0 + attack + decay + sustainTime);
-        gain.gain.linearRampToValueAtTime(0, t0 + total);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
 
         osc.connect(distortion);
         distortion.connect(gain);
         gain.connect(ctx.destination);
 
-        osc.start(t0);
-        osc.stop(t0 + total + 0.05);
+        osc.start(now);
+
+        currentVoice = { osc, gain };
+      } else {
+        const { osc } = currentVoice;
+        osc.frequency.cancelScheduledValues(now);
+        const currentFreq = osc.frequency.value;
+        osc.frequency.setValueAtTime(currentFreq, now);
+        osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
       }
+    }
 
-      function recordNoteOn(mappedNote) {
-        if (recState !== "recording") return;
-        const ctx = getAudio();
-        if (!ctx || recStartTime === null || recEndTime === null) return;
+    function stopCurrentVoice() {
+      if (!currentVoice) return;
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const { osc, gain } = currentVoice;
 
-        const now = ctx.currentTime;
-        if (now < recStartTime || now > recEndTime) return;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.06);
 
-        // monophonic: close any pending notes first
-        Object.keys(pendingNotes).forEach(existing => {
-          recordNoteOff(existing);
-        });
+      osc.stop(now + 0.07);
+      currentVoice = null;
+    }
 
-        const globalStepNow = timeToGlobalStep(now);
-        let localStart = globalStepNow - recStartGlobalStep;
-        if (localStart < 0) localStart = 0;
-        if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
+    // --- DRUMS: one-shots, 1-bar patterns ---
+    const drumParts = ["kick","snare","ch","oh","perc"];
+    const drumFiles = {
+      kick: ["sounds2/Kick1.wav","sounds2/Kick2.wav","sounds2/Kick3.wav","sounds2/Kick4.wav"],
+      snare:["sounds2/Snare1.wav","sounds2/Snare2.wav","sounds2/Snare3.wav","sounds2/Snare4.wav"],
+      ch:   ["sounds2/CH1.wav","sounds2/CH2.wav","sounds2/CH3.wav","sounds2/CH4.wav"],
+      oh:   ["sounds2/OH1.wav","sounds2/OH2.wav","sounds2/OH3.wav","sounds2/OH4.wav"],
+      perc: ["sounds2/Perc1.wav","sounds2/Perc2.wav","sounds2/Perc3.wav","sounds2/Perc4.wav"]
+    };
 
-        pendingNotes[mappedNote] = { startGlobalStep: globalStepNow, localStart };
-      }
+    let drumBuffers = {
+      kick: [null,null,null,null],
+      snare:[null,null,null,null],
+      ch:   [null,null,null,null],
+      oh:   [null,null,null,null],
+      perc: [null,null,null,null]
+    };
 
-      function recordNoteOff(mappedNote) {
-        if (recState !== "recording") return;
-        const ctx = getAudio();
-        if (!ctx || recStartTime === null || recEndTime === null) return;
-        const data = pendingNotes[mappedNote];
-        if (!data) return;
+    let drumLoaded = false;
+    let drumLoading = false;
 
-        const now = ctx.currentTime;
-        const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
-        const globalStepOff = timeToGlobalStep(clamped);
+    const drumPatterns = {
+      kick: new Array(16).fill(false),
+      snare:new Array(16).fill(false),
+      ch:   new Array(16).fill(false),
+      oh:   new Array(16).fill(false),
+      perc: new Array(16).fill(false)
+    };
 
-        let localEnd = globalStepOff - recStartGlobalStep;
-        if (localEnd <= data.localStart) localEnd = data.localStart + 1;
-        if (localEnd > TOTAL_STEPS) localEnd = TOTAL_STEPS;
+    const drumMuted = {
+      kick: false,
+      snare:false,
+      ch:   false,
+      oh:   false,
+      perc: false
+    };
 
-        const lengthSteps = localEnd - data.localStart;
-        if (lengthSteps > 0) {
-          synthPattern[data.localStart] = { note: mappedNote, lengthSteps };
-        }
+    const drumVariantIndex = {
+      kick: 0,
+      snare:0,
+      ch:   0,
+      oh:   0,
+      perc: 0
+    };
 
-        delete pendingNotes[mappedNote];
-      }
-
-      function finalizeRecording() {
-        // close any held notes at loop boundary
-        Object.entries(pendingNotes).forEach(([note, data]) => {
-          let localEnd = TOTAL_STEPS;
-          if (localEnd <= data.localStart) localEnd = data.localStart + 1;
-          const lengthSteps = localEnd - data.localStart;
-          if (lengthSteps > 0) {
-            synthPattern[data.localStart] = { note, lengthSteps };
-          }
-        });
-        pendingNotes = {};
-      }
-
-      // --- DOM: step indicator ---
-      const stepContainer = document.getElementById("step-indicator");
-      const stepDots = [];
-      if (stepContainer) {
-        for (let i = 0; i < 16; i++) {
-          const dot = document.createElement("div");
-          dot.className = "step-dot";
-          stepContainer.appendChild(dot);
-          stepDots.push(dot);
-        }
-      }
-
-      // --- DOM: drums grid & controls ---
-      const drumGrids = {};
-      const drumButtons = {};
-      const drumSelects = {};
-
-      function buildDrumGrid(part) {
-        const gridEl = document.querySelector(`.drum-grid[data-part="${part}"]`);
-        drumGrids[part] = gridEl;
-        if (!gridEl) return;
-        gridEl.innerHTML = "";
-        // 4 rows (beats), 4 cols (1/e/&/a) = 16 steps
-        for (let row = 0; row < 4; row++) {
-          for (let col = 0; col < 4; col++) {
-            const idx = row * 4 + col; // step index 0..15
-            const cell = document.createElement("div");
-            cell.className = "drum-cell";
-            cell.dataset.step = idx.toString();
-            cell.addEventListener("click", () => {
-              const current = drumPatterns[part][idx];
-              drumPatterns[part][idx] = !current;
-              cell.classList.toggle("active", !current);
-            });
-            gridEl.appendChild(cell);
+    async function loadDrumBuffers(ctx) {
+      if (drumLoaded || drumLoading) return;
+      drumLoading = true;
+      try {
+        for (const part of drumParts) {
+          const urls = drumFiles[part];
+          for (let i = 0; i < urls.length; i++) {
+            const res = await fetch(urls[i]);
+            const arr = await res.arrayBuffer();
+            drumBuffers[part][i] = await ctx.decodeAudioData(arr);
           }
         }
+        drumLoaded = true;
+      } catch (e) {
+        console.warn("Error loading drum one-shots:", e);
+      } finally {
+        drumLoading = false;
       }
+    }
 
-      drumParts.forEach((part) => {
-        buildDrumGrid(part);
-        const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
-        if (btn) {
-          drumButtons[part] = btn;
-          btn.addEventListener("click", () => {
-            drumMuted[part] = !drumMuted[part];
-            btn.classList.toggle("active", !drumMuted[part]);
-          });
-        }
-        const sel = document.querySelector(`.drum-select[data-part="${part}"]`);
-        if (sel) {
-          drumSelects[part] = sel;
-          sel.addEventListener("change", () => {
-            const val = parseInt(sel.value || "1", 10);
-            drumVariantIndex[part] = Math.max(0, Math.min(3, val - 1));
-          });
-        }
+    function scheduleDrumsForStep(globalStep, when) {
+      if (!drumLoaded) return;
+      const ctx = getAudio();
+      if (!ctx) return;
+
+      // drums: 1-bar 16-step pattern, repeating across 4 bars
+      const localStep = globalStep % 16;
+
+      for (const part of drumParts) {
+        if (drumMuted[part]) continue;
+        if (!drumPatterns[part][localStep]) continue;
+
+        const variant = drumVariantIndex[part] || 0;
+        const buffer = drumBuffers[part][variant];
+        if (!buffer) continue;
+
+        const src = ctx.createBufferSource();
+        const gain = ctx.createGain();
+
+        src.buffer = buffer;
+        gain.gain.setValueAtTime(0.2, when); // ~50% of previous 0.4
+
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        src.start(when);
+      }
+    }
+
+    // --- SYNTH SEQUENCER (64-step mono pattern) ---
+    let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSteps}
+    let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
+    let recStartTime = null;
+    let recEndTime = null;
+    let recStartGlobalStep = 0;
+    let pendingNotes = {}; // mappedNote -> { startGlobalStep, localStart, startTime }
+    let currentRecordedNote = null;
+
+    function scheduleSynthForStep(globalStep, when) {
+      if (recState !== "playing") return;
+      const localStep = globalStep % TOTAL_STEPS;
+      const evt = synthPattern[localStep];
+      if (!evt) return;
+
+      const duration = evt.lengthSteps * STEP_DUR;
+      triggerSeqNote(evt.note, duration, when);
+    }
+
+    function triggerSeqNote(noteName, durationSeconds, startTime) {
+      const mapped = scaleMap[noteName] || noteName;
+      const freq = noteFreq[mapped];
+      if (!freq) return;
+      const ctx = getAudio();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      const t0 = Math.max(startTime, now);
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const distortion = ctx.createWaveShaper();
+
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, t0);
+
+      distortion.curve = createDistortionCurve(4);
+      distortion.oversample = "2x";
+
+      const attack = 0.02;
+      const decay = 0.06;
+      const sustainLevel = 0.22;
+      const total = Math.max(0.08, durationSeconds);
+      const release = 0.08;
+      const sustainTime = Math.max(0, total - (attack + decay + release));
+
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.23, t0 + attack);
+      gain.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + decay);
+      gain.gain.setValueAtTime(sustainLevel, t0 + attack + decay + sustainTime);
+      gain.gain.linearRampToValueAtTime(0, t0 + total);
+
+      osc.connect(distortion);
+      distortion.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(t0);
+      osc.stop(t0 + total + 0.05);
+    }
+
+    // --- Recording helpers (quantize start only, length from real time, mono) ---
+    function recordNoteOn(mappedNote) {
+      if (recState !== "recording") return;
+      const ctx = getAudio();
+      if (!ctx || recStartTime === null || recEndTime === null) return;
+
+      const now = ctx.currentTime;
+      if (now < recStartTime || now > recEndTime) return;
+
+      // close any pending notes first (monophonic)
+      Object.keys(pendingNotes).forEach(existing => {
+        recordNoteOff(existing);
       });
 
-      // --- DOM: transport + record ---
-      const playBtn = document.getElementById("transport-play");
-      const stopBtn = document.getElementById("transport-stop");
-      const recBtn = document.getElementById("seq-record");
+      const globalStepNow = timeToGlobalStep(now); // quantized start
+      let localStart = globalStepNow - recStartGlobalStep;
+      if (localStart < 0) localStart = 0;
+      if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
-      if (playBtn) {
-        playBtn.addEventListener("click", async () => {
-          const ctx = getAudio();
-          if (!ctx) return;
-          await loadDrumBuffers(ctx);
+      pendingNotes[mappedNote] = {
+        startGlobalStep: globalStepNow,
+        localStart,
+        startTime: now    // real time for length
+      };
+    }
 
-          // reset pattern playback if already running
-          stopTransport();
-          synthPattern = new Array(TOTAL_STEPS).fill(null);
+    function recordNoteOff(mappedNote) {
+      if (recState !== "recording") return;
+      const ctx = getAudio();
+      if (!ctx || recStartTime === null || recEndTime === null) return;
+      const data = pendingNotes[mappedNote];
+      if (!data) return;
+
+      const now = ctx.currentTime;
+      const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
+      const durSec = Math.max(0.01, clamped - data.startTime);
+      let lengthSteps = Math.max(1, Math.round(durSec / STEP_DUR));
+
+      let localEnd = data.localStart + lengthSteps;
+      if (localEnd > TOTAL_STEPS) {
+        localEnd = TOTAL_STEPS;
+        lengthSteps = localEnd - data.localStart;
+      }
+      if (lengthSteps <= 0) {
+        delete pendingNotes[mappedNote];
+        return;
+      }
+
+      // store mono event at quantized start
+      synthPattern[data.localStart] = { note: mappedNote, lengthSteps };
+
+      delete pendingNotes[mappedNote];
+    }
+
+    function finalizeRecording() {
+      if (!recStartTime || !recEndTime) {
+        pendingNotes = {};
+        return;
+      }
+      Object.entries(pendingNotes).forEach(([note, data]) => {
+        const durSec = Math.max(0.01, recEndTime - data.startTime);
+        let lengthSteps = Math.max(1, Math.round(durSec / STEP_DUR));
+        let localEnd = data.localStart + lengthSteps;
+        if (localEnd > TOTAL_STEPS) {
+          localEnd = TOTAL_STEPS;
+          lengthSteps = localEnd - data.localStart;
+        }
+        if (lengthSteps > 0) {
+          synthPattern[data.localStart] = { note, lengthSteps };
+        }
+      });
+      pendingNotes = {};
+    }
+
+    // --- DOM: step indicator ---
+    const stepContainer = document.getElementById("step-indicator");
+    const stepDots = [];
+    if (stepContainer) {
+      for (let i = 0; i < 16; i++) {
+        const dot = document.createElement("div");
+        dot.className = "step-dot";
+        stepContainer.appendChild(dot);
+        stepDots.push(dot);
+      }
+    }
+
+    // --- DOM: drums grid & controls ---
+    const drumGrids = {};
+    const drumButtons = {};
+    const drumSelects = {};
+
+    function buildDrumGrid(part) {
+      const gridEl = document.querySelector(`.drum-grid[data-part="${part}"]`);
+      drumGrids[part] = gridEl;
+      if (!gridEl) return;
+      gridEl.innerHTML = "";
+      // 4 rows (beats), 4 cols (1/e/&/a) = 16 steps
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          const idx = row * 4 + col; // step index 0..15
+          const cell = document.createElement("div");
+          cell.className = "drum-cell";
+          cell.dataset.step = idx.toString();
+          cell.addEventListener("click", () => {
+            const current = drumPatterns[part][idx];
+            drumPatterns[part][idx] = !current;
+            cell.classList.toggle("active", !current);
+          });
+          gridEl.appendChild(cell);
+        }
+      }
+    }
+
+    drumParts.forEach((part) => {
+      buildDrumGrid(part);
+      const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
+      if (btn) {
+        drumButtons[part] = btn;
+        btn.addEventListener("click", () => {
+          drumMuted[part] = !drumMuted[part];
+          btn.classList.toggle("active", !drumMuted[part]);
+        });
+      }
+      const sel = document.querySelector(`.drum-select[data-part="${part}"]`);
+      if (sel) {
+        drumSelects[part] = sel;
+        sel.addEventListener("change", () => {
+          const val = parseInt(sel.value || "1", 10);
+          drumVariantIndex[part] = Math.max(0, Math.min(3, val - 1));
+        });
+      }
+    });
+
+    // --- DOM: transport + record ---
+    const playBtn = document.getElementById("transport-play");
+    const stopBtn = document.getElementById("transport-stop");
+    const recBtn = document.getElementById("seq-record");
+
+    if (playBtn) {
+      playBtn.addEventListener("click", async () => {
+        const ctx = getAudio();
+        if (!ctx) return;
+        await loadDrumBuffers(ctx);
+
+        // reset pattern playback if already running
+        stopTransport();
+        synthPattern = new Array(TOTAL_STEPS).fill(null);
+        recState = "idle";
+        pendingNotes = {};
+        currentRecordedNote = null;
+        recStartTime = null;
+        recEndTime = null;
+        recBtn.classList.remove("recording","looping");
+        recBtn.textContent = "rec";
+
+        startTransport();
+        playBtn.classList.add("active");
+        if (stopBtn) stopBtn.classList.remove("active");
+      });
+    }
+
+    if (stopBtn) {
+      stopBtn.addEventListener("click", () => {
+        stopTransport();
+        recState = "idle";
+        pendingNotes = {};
+        currentRecordedNote = null;
+        recStartTime = null;
+        recEndTime = null;
+        synthPattern = new Array(TOTAL_STEPS).fill(null);
+        if (recBtn) {
+          recBtn.classList.remove("recording","looping");
+          recBtn.textContent = "rec";
+        }
+        if (playBtn) playBtn.classList.remove("active");
+        stopBtn.classList.add("active");
+      });
+    }
+
+    if (recBtn) {
+      recBtn.addEventListener("click", async () => {
+        const ctx = getAudio();
+        if (!ctx) return;
+        await loadDrumBuffers(ctx);
+
+        // If already recording/playing, stop & clear
+        if (recState !== "idle") {
           recState = "idle";
+          finalizeRecording();
+          synthPattern = new Array(TOTAL_STEPS).fill(null);
           pendingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
           recEndTime = null;
           recBtn.classList.remove("recording","looping");
           recBtn.textContent = "rec";
+          return;
+        }
 
-          startTransport();
-          playBtn.classList.add("active");
-          if (stopBtn) stopBtn.classList.remove("active");
-        });
-      }
+        const now = ctx.currentTime;
 
-      if (stopBtn) {
-        stopBtn.addEventListener("click", () => {
-          stopTransport();
-          recState = "idle";
-          pendingNotes = {};
-          currentRecordedNote = null;
-          recStartTime = null;
-          recEndTime = null;
-          synthPattern = new Array(TOTAL_STEPS).fill(null);
-          if (recBtn) {
-            recBtn.classList.remove("recording","looping");
-            recBtn.textContent = "rec";
+        // --- CASE 1: transport not running ---
+        if (!transportRunning) {
+          const countInStart = now;
+          const countInEnd = countInStart + 4 * BEAT_DUR;
+
+          // transport & recording start after count-in
+          transportStartTime = countInEnd;
+          transportRunning = true;
+
+          globalStepCounter = 0;
+          nextStepTime = transportStartTime + STEP_DUR;
+          lastQuarterVisual = null;
+
+          if (!stepTimer) {
+            stepTimer = setInterval(() => {
+              const c = getAudio();
+              if (!c || !transportRunning) return;
+              const now2 = c.currentTime;
+              const lookahead = 0.1;
+
+              while (nextStepTime <= now2 + lookahead) {
+                globalStepCounter++;
+                const localStep = globalStepCounter % TOTAL_STEPS;
+
+                if (stepDots.length) {
+                  const quarterIndex = Math.floor(localStep / 4);
+                  if (quarterIndex !== lastQuarterVisual) {
+                    stepDots.forEach((dot, idx) => {
+                      dot.classList.toggle("active", idx === quarterIndex);
+                    });
+                    lastQuarterVisual = quarterIndex;
+                  }
+                }
+
+                scheduleDrumsForStep(localStep, nextStepTime);
+                scheduleSynthForStep(localStep, nextStepTime);
+
+                nextStepTime += STEP_DUR;
+              }
+            }, 25);
           }
-          if (playBtn) playBtn.classList.remove("active");
-          stopBtn.classList.add("active");
-        });
-      }
 
-      if (recBtn) {
-        recBtn.addEventListener("click", async () => {
-          const ctx = getAudio();
-          if (!ctx) return;
-          await loadDrumBuffers(ctx);
+          // count-in display + metronome (beats 4,3,2,1)
+          recState = "count-in";
+          recBtn.classList.add("recording");
+          recBtn.classList.remove("looping");
+          recBtn.textContent = "4";
 
-          // Cancel any current recording/playback and clear pattern
-          if (recState !== "idle") {
-            recState = "idle";
-            finalizeRecording();
+          for (let i = 0; i < 4; i++) {
+            const displayNum = 4 - i;
+            const t = countInStart + i * BEAT_DUR;
+            const delay = Math.max(0, (t - now) * 1000);
+
+            // UI countdown
+            setTimeout(() => {
+              if (recState === "count-in") {
+                recBtn.textContent = displayNum.toString();
+              }
+            }, delay);
+
+            // metronome click
+            metronomeClick(t);
+          }
+
+          // more metronome clicks during the 4-bar recording
+          const recStart = transportStartTime;
+          const recEnd = recStart + LOOP_BEATS * BEAT_DUR;
+          for (let i = 0; i < LOOP_BEATS; i++) {
+            const tBeat = recStart + i * BEAT_DUR;
+            metronomeClick(tBeat);
+          }
+
+          recStartTime = recStart;
+          recEndTime = recEnd;
+          recStartGlobalStep = timeToGlobalStep(recStartTime);
+
+          const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
+          setTimeout(() => {
+            if (recState !== "count-in") return;
+            recState = "recording";
             synthPattern = new Array(TOTAL_STEPS).fill(null);
             pendingNotes = {};
-            currentRecordedNote = null;
-            recStartTime = null;
-            recEndTime = null;
-            recBtn.classList.remove("recording","looping");
-            recBtn.textContent = "rec";
-            return;
+            recBtn.textContent = "rec*";
+          }, toRecordMs);
+
+          const toEndMs = Math.max(0, (recEndTime - now) * 1000);
+          setTimeout(() => {
+            if (recState !== "recording") return;
+            recState = "playing";
+            finalizeRecording();
+            recBtn.classList.remove("recording");
+            recBtn.classList.add("looping");
+            recBtn.textContent = "looping";
+          }, toEndMs);
+
+          if (playBtn) playBtn.classList.add("active");
+          if (stopBtn) stopBtn.classList.remove("active");
+
+        } else {
+          // --- CASE 2: transport running, arm for NEXT loop ---
+          const elapsedBeatsFloat = (now - transportStartTime) / BEAT_DUR;
+          const currentLoopIndex = Math.floor(elapsedBeatsFloat / LOOP_BEATS);
+          const recordStartLoopIndex = currentLoopIndex + 1;
+          const recordStartBeatGlobal = recordStartLoopIndex * LOOP_BEATS;
+
+          const recStart = transportStartTime + recordStartBeatGlobal * BEAT_DUR;
+          const recEnd = recStart + LOOP_BEATS * BEAT_DUR;
+
+          // count-in: last 4 beats before recStart (4,3,2,1)
+          recState = "count-in";
+          recBtn.classList.add("recording");
+          recBtn.classList.remove("looping");
+          recBtn.textContent = "4";
+
+          for (let i = 0; i < 4; i++) {
+            const beatIndex = recordStartBeatGlobal - (4 - i); // beats before recStart
+            const t = transportStartTime + beatIndex * BEAT_DUR;
+            const displayNum = 4 - i;
+            const delay = Math.max(0, (t - now) * 1000);
+
+            setTimeout(() => {
+              if (recState === "count-in") {
+                recBtn.textContent = displayNum.toString();
+              }
+            }, delay);
+
+            metronomeClick(t);
           }
 
-          // If transport not running, start it after a 4-beat count-in.
-          if (!transportRunning) {
-            const now = ctx.currentTime;
-            const countInStart = now;
-            const countInEnd = countInStart + 4 * BEAT_DUR;
-
-            // transport start and record start at the same time, after count-in
-            transportStartTime = countInEnd;
-            transportRunning = true;
-
-            globalStepCounter = 0;
-            nextStepTime = transportStartTime + STEP_DUR;
-            lastQuarterVisual = null;
-
-            if (!stepTimer) {
-              stepTimer = setInterval(() => {
-                const c = getAudio();
-                if (!c || !transportRunning) return;
-                const now2 = c.currentTime;
-                const lookahead = 0.1;
-
-                while (nextStepTime <= now2 + lookahead) {
-                  globalStepCounter++;
-                  const localStep = globalStepCounter % TOTAL_STEPS;
-
-                  if (stepDots.length) {
-                    const quarterIndex = Math.floor(localStep / 4);
-                    if (quarterIndex !== lastQuarterVisual) {
-                      stepDots.forEach((dot, idx) => {
-                        dot.classList.toggle("active", idx === quarterIndex);
-                      });
-                      lastQuarterVisual = quarterIndex;
-                    }
-                  }
-
-                  scheduleDrumsForStep(localStep, nextStepTime);
-                  scheduleSynthForStep(localStep, nextStepTime);
-
-                  nextStepTime += STEP_DUR;
-                }
-              }, 25);
-            }
-
-            // count-in display 4,3,2,1
-            recState = "count-in";
-            recBtn.classList.add("recording");
-            recBtn.classList.remove("looping");
-            recBtn.textContent = "4";
-
-            for (let i = 0; i < 4; i++) {
-              const displayNum = 4 - i;
-              const t = countInStart + i * BEAT_DUR;
-              const delay = Math.max(0, (t - now) * 1000);
-              setTimeout(() => {
-                if (recState === "count-in") {
-                  recBtn.textContent = displayNum.toString();
-                }
-              }, delay);
-            }
-
-            // start recording exactly at 1.1
-            recStartTime = transportStartTime;
-            recEndTime = recStartTime + LOOP_BEATS * BEAT_DUR;
-            recStartGlobalStep = timeToGlobalStep(recStartTime);
-
-            const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
-            setTimeout(() => {
-              if (recState !== "count-in") return;
-              recState = "recording";
-              synthPattern = new Array(TOTAL_STEPS).fill(null);
-              pendingNotes = {};
-              recBtn.textContent = "rec*";
-            }, toRecordMs);
-
-            const toEndMs = Math.max(0, (recEndTime - now) * 1000);
-            setTimeout(() => {
-              if (recState !== "recording") return;
-              recState = "playing";
-              finalizeRecording();
-              recBtn.classList.remove("recording");
-              recBtn.classList.add("looping");
-              recBtn.textContent = "looping";
-            }, toEndMs);
-
-            if (playBtn) playBtn.classList.add("active");
-            if (stopBtn) stopBtn.classList.remove("active");
-
-          } else {
-            // Transport is running: arm recording for NEXT full loop at 1.1
-            const now = ctx.currentTime;
-            const elapsedBeatsFloat = (now - transportStartTime) / BEAT_DUR;
-            const currentLoopIndex = Math.floor(elapsedBeatsFloat / LOOP_BEATS);
-            const recordStartLoopIndex = currentLoopIndex + 1;
-            const recordStartBeatGlobal = recordStartLoopIndex * LOOP_BEATS; // beat index from transportStart
-
-            const recStart = transportStartTime + recordStartBeatGlobal * BEAT_DUR;
-            const recEnd = recStart + LOOP_BEATS * BEAT_DUR;
-
-            // count-in over last 4 beats of current loop (4,3,2,1)
-            recState = "count-in";
-            recBtn.classList.add("recording");
-            recBtn.classList.remove("looping");
-            recBtn.textContent = "4";
-
-            for (let i = 0; i < 4; i++) {
-              const beatIndex = recordStartBeatGlobal - (4 - i); // beats before recStart
-              const t = transportStartTime + beatIndex * BEAT_DUR;
-              const displayNum = 4 - i;
-              const delay = Math.max(0, (t - now) * 1000);
-              setTimeout(() => {
-                if (recState === "count-in") {
-                  recBtn.textContent = displayNum.toString();
-                }
-              }, delay);
-            }
-
-            recStartTime = recStart;
-            recEndTime = recEnd;
-            recStartGlobalStep = Math.round((recordStartBeatGlobal * BEATS_PER_BAR * 0 + recordStartBeatGlobal * 4)); // 4 steps per beat
-            recStartGlobalStep = recordStartBeatGlobal * 4;
-
-            const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
-            setTimeout(() => {
-              if (recState !== "count-in") return;
-              recState = "recording";
-              synthPattern = new Array(TOTAL_STEPS).fill(null);
-              pendingNotes = {};
-              recBtn.textContent = "rec*";
-            }, toRecordMs);
-
-            const toEndMs = Math.max(0, (recEndTime - now) * 1000);
-            setTimeout(() => {
-              if (recState !== "recording") return;
-              recState = "playing";
-              finalizeRecording();
-              recBtn.classList.remove("recording");
-              recBtn.classList.add("looping");
-              recBtn.textContent = "looping";
-            }, toEndMs);
+          // metronome during recording loop
+          for (let i = 0; i < LOOP_BEATS; i++) {
+            const tBeat = recStart + i * BEAT_DUR;
+            metronomeClick(tBeat);
           }
-        });
-      }
 
-      // --- PIANO / POINTER INPUT & RECORD HOOKS ---
-      const piano = document.querySelector(".piano");
-      const keys = document.querySelectorAll(".key[data-note]");
-      if (!piano || !keys.length) return;
+          recStartTime = recStart;
+          recEndTime = recEnd;
+          recStartGlobalStep = recordStartBeatGlobal * 4; // 4 steps per beat
 
-      let pointerDown = false;
-      let activeTouchId = null;
-      let activeKeyEl = null;
+          const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
+          setTimeout(() => {
+            if (recState !== "count-in") return;
+            recState = "recording";
+            synthPattern = new Array(TOTAL_STEPS).fill(null);
+            pendingNotes = {};
+            recBtn.textContent = "rec*";
+          }, toRecordMs);
 
-      function setActiveKey(newKey) {
-        if (activeKeyEl === newKey) return;
-        if (activeKeyEl) {
-          activeKeyEl.classList.remove("is-down");
+          const toEndMs = Math.max(0, (recEndTime - now) * 1000);
+          setTimeout(() => {
+            if (recState !== "recording") return;
+            recState = "playing";
+            finalizeRecording();
+            recBtn.classList.remove("recording");
+            recBtn.classList.add("looping");
+            recBtn.textContent = "looping";
+          }, toEndMs);
         }
-        activeKeyEl = newKey;
-        if (activeKeyEl) {
-          activeKeyEl.classList.add("is-down");
-        }
-      }
-
-      function getKeyFromTarget(target) {
-        if (!target) return null;
-        if (target.classList && target.classList.contains("key") && target.dataset.note) {
-          return target;
-        }
-        return target.closest ? target.closest(".key[data-note]") : null;
-      }
-
-      // Mouse
-      keys.forEach((key) => {
-        key.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          pointerDown = true;
-          const rawNote = key.getAttribute("data-note");
-          if (!rawNote) return;
-          const mapped = scaleMap[rawNote] || rawNote;
-          currentRecordedNote = mapped;
-
-          setActiveKey(key);
-          if (recState === "recording") {
-            recordNoteOn(mapped);
-          }
-          startOrGlideToNote(rawNote);
-        });
       });
+    }
 
-      window.addEventListener("mouseup", () => {
-        if (!pointerDown) return;
-        pointerDown = false;
-        if (recState === "recording" && currentRecordedNote) {
-          recordNoteOff(currentRecordedNote);
-        }
-        currentRecordedNote = null;
-        setActiveKey(null);
-        stopCurrentVoice();
-      });
+    // --- PIANO / POINTER INPUT & RECORD HOOKS ---
+    const piano = document.querySelector(".piano");
+    const keys = document.querySelectorAll(".key[data-note]");
+    if (!piano || !keys.length) return;
 
-      piano.addEventListener("mousemove", (e) => {
-        if (!pointerDown) return;
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const key = getKeyFromTarget(el);
-        if (!key) return;
-        const rawNote = key.getAttribute("data-note");
-        if (!rawNote) return;
-        const mapped = scaleMap[rawNote] || rawNote;
+    let pointerDown = false;
+    let activeTouchId = null;
+    let activeKeyEl = null;
 
-        if (mapped !== currentRecordedNote) {
-          if (recState === "recording" && currentRecordedNote) {
-            recordNoteOff(currentRecordedNote);
-          }
-          if (recState === "recording") {
-            recordNoteOn(mapped);
-          }
-          currentRecordedNote = mapped;
-        }
+    function setActiveKey(newKey) {
+      if (activeKeyEl === newKey) return;
+      if (activeKeyEl) {
+        activeKeyEl.classList.remove("is-down");
+      }
+      activeKeyEl = newKey;
+      if (activeKeyEl) {
+        activeKeyEl.classList.add("is-down");
+      }
+    }
 
-        setActiveKey(key);
-        startOrGlideToNote(rawNote);
-      });
+    function getKeyFromTarget(target) {
+      if (!target) return null;
+      if (target.classList && target.classList.contains("key") && target.dataset.note) {
+        return target;
+      }
+      return target.closest ? target.closest(".key[data-note]") : null;
+    }
 
-      // Touch
-      piano.addEventListener("touchstart", (e) => {
+    // Mouse
+    keys.forEach((key) => {
+      key.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        if (activeTouchId !== null) return;
-        const touch = e.changedTouches[0];
-        activeTouchId = touch.identifier;
         pointerDown = true;
-        const el = document.elementFromPoint(touch.clientX, touch.clientY);
-        const key = getKeyFromTarget(el);
-        if (!key) return;
         const rawNote = key.getAttribute("data-note");
         if (!rawNote) return;
         const mapped = scaleMap[rawNote] || rawNote;
-
         currentRecordedNote = mapped;
+
         setActiveKey(key);
         if (recState === "recording") {
           recordNoteOn(mapped);
         }
         startOrGlideToNote(rawNote);
-      }, { passive: false });
+      });
+    });
 
-      piano.addEventListener("touchmove", (e) => {
-        if (activeTouchId === null) return;
-        const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
-        if (!touch) return;
-        const el = document.elementFromPoint(touch.clientX, touch.clientY);
-        const key = getKeyFromTarget(el);
-        if (!key) return;
-        const rawNote = key.getAttribute("data-note");
-        if (!rawNote) return;
-        const mapped = scaleMap[rawNote] || rawNote;
+    window.addEventListener("mouseup", () => {
+      if (!pointerDown) return;
+      pointerDown = false;
+      if (recState === "recording" && currentRecordedNote) {
+        recordNoteOff(currentRecordedNote);
+      }
+      currentRecordedNote = null;
+      setActiveKey(null);
+      stopCurrentVoice();
+    });
 
-        if (mapped !== currentRecordedNote) {
-          if (recState === "recording" && currentRecordedNote) {
-            recordNoteOff(currentRecordedNote);
-          }
-          if (recState === "recording") {
-            recordNoteOn(mapped);
-          }
-          currentRecordedNote = mapped;
-        }
+    piano.addEventListener("mousemove", (e) => {
+      if (!pointerDown) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const key = getKeyFromTarget(el);
+      if (!key) return;
+      const rawNote = key.getAttribute("data-note");
+      if (!rawNote) return;
+      const mapped = scaleMap[rawNote] || rawNote;
 
-        setActiveKey(key);
-        startOrGlideToNote(rawNote);
-      }, { passive: false });
-
-      function endTouch(e) {
-        if (activeTouchId === null) return;
-        const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
-        if (!touch) return;
-        activeTouchId = null;
-        pointerDown = false;
+      if (mapped !== currentRecordedNote) {
         if (recState === "recording" && currentRecordedNote) {
           recordNoteOff(currentRecordedNote);
         }
-        currentRecordedNote = null;
-        setActiveKey(null);
-        stopCurrentVoice();
+        if (recState === "recording") {
+          recordNoteOn(mapped);
+        }
+        currentRecordedNote = mapped;
       }
 
-      piano.addEventListener("touchend", endTouch, { passive: false });
-      piano.addEventListener("touchcancel", endTouch, { passive: false });
+      setActiveKey(key);
+      startOrGlideToNote(rawNote);
     });
 
-    // Drunk-vision cursor trail
-    document.addEventListener("mousemove", (e) => {
-      const trail = document.createElement("div");
-      trail.className = "cursor-trail";
+    // Touch
+    piano.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      if (activeTouchId !== null) return;
+      const touch = e.changedTouches[0];
+      activeTouchId = touch.identifier;
+      pointerDown = true;
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const key = getKeyFromTarget(el);
+      if (!key) return;
+      const rawNote = key.getAttribute("data-note");
+      if (!rawNote) return;
+      const mapped = scaleMap[rawNote] || rawNote;
 
-      trail.style.left = e.clientX + "px";
-      trail.style.top = e.clientY + "px";
+      currentRecordedNote = mapped;
+      setActiveKey(key);
+      if (recState === "recording") {
+        recordNoteOn(mapped);
+      }
+      startOrGlideToNote(rawNote);
+    }, { passive: false });
 
-      const scale = 0.9 + Math.random() * 0.4;
-      trail.style.width = 14 * scale + "px";
-      trail.style.height = 14 * scale + "px";
-      trail.style.background = `rgba(0, 0, 0, ${0.08 + Math.random() * 0.07})`;
-      trail.style.filter = "blur(" + (4 + Math.random() * 3) + "px)";
+    piano.addEventListener("touchmove", (e) => {
+      if (activeTouchId === null) return;
+      const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
+      if (!touch) return;
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const key = getKeyFromTarget(el);
+      if (!key) return;
+      const rawNote = key.getAttribute("data-note");
+      if (!rawNote) return;
+      const mapped = scaleMap[rawNote] || rawNote;
 
-      document.body.appendChild(trail);
-      setTimeout(() => trail.remove(), 750);
-    });
-  </script>
+      if (mapped !== currentRecordedNote) {
+        if (recState === "recording" && currentRecordedNote) {
+          recordNoteOff(currentRecordedNote);
+        }
+        if (recState === "recording") {
+          recordNoteOn(mapped);
+        }
+        currentRecordedNote = mapped;
+      }
+
+      setActiveKey(key);
+      startOrGlideToNote(rawNote);
+    }, { passive: false });
+
+    function endTouch(e) {
+      if (activeTouchId === null) return;
+      const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
+      if (!touch) return;
+      activeTouchId = null;
+      pointerDown = false;
+      if (recState === "recording" && currentRecordedNote) {
+        recordNoteOff(currentRecordedNote);
+      }
+      currentRecordedNote = null;
+      setActiveKey(null);
+      stopCurrentVoice();
+    }
+
+    piano.addEventListener("touchend", endTouch, { passive: false });
+    piano.addEventListener("touchcancel", endTouch, { passive: false });
+  });
+
+  // Drunk-vision cursor trail
+  document.addEventListener("mousemove", (e) => {
+    const trail = document.createElement("div");
+    trail.className = "cursor-trail";
+
+    trail.style.left = e.clientX + "px";
+    trail.style.top = e.clientY + "px";
+
+    const scale = 0.9 + Math.random() * 0.4;
+    trail.style.width = 14 * scale + "px";
+    trail.style.height = 14 * scale + "px";
+    trail.style.background = `rgba(0, 0, 0, ${0.08 + Math.random() * 0.07})`;
+    trail.style.filter = "blur(" + (4 + Math.random() * 3) + "px)`;
+
+    document.body.appendChild(trail);
+    setTimeout(() => trail.remove(), 750);
+  });
+</script>
 
 </body>
 </html>
