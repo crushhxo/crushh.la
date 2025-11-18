@@ -494,6 +494,7 @@
       const drumBuffers = {};
       const drumGains = {};
       const drumSources = {};
+      let drumLoopDuration = null;
 
       async function loadDrumBuffers(ctx) {
         if (drumLoaded || drumLoading) return;
@@ -526,8 +527,16 @@
           const buffer = drumBuffers[part];
           if (!buffer) continue;
           const src = ctx.createBufferSource();
+
+          // Use the first loaded buffer's duration as the master loop length
+          if (drumLoopDuration === null) {
+            drumLoopDuration = buffer.duration;
+          }
+
           src.buffer = buffer;
           src.loop = true;
+          src.loopStart = 0;
+          src.loopEnd = drumLoopDuration;
 
           const gain = ctx.createGain();
           // start muted by default; buttons will un-mute
@@ -552,7 +561,7 @@
 
         const now = ctx.currentTime;
         const isOn = (gain.gain.value || 0) > 0.001;
-        const target = isOn ? 0 : 1;
+        const target = isOn ? 0 : 0.75;
 
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
