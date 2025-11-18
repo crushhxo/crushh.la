@@ -1181,6 +1181,10 @@
 
       if (playBtn) {
         playBtn.addEventListener("click", async () => {
+          // Set button state immediately
+          playBtn.classList.add("active");
+          if (stopBtn) stopBtn.classList.remove("active");
+          
           // Ensure audio context is initialized and resumed
           initAudioCtx();
           if (audioCtx && audioCtx.state !== "running") {
@@ -1193,7 +1197,12 @@
           unlockIOSAudio();
           
           const ctx = getAudio();
-          if (!ctx) return;
+          if (!ctx) {
+            // If audio context fails, revert button state
+            playBtn.classList.remove("active");
+            if (stopBtn) stopBtn.classList.add("active");
+            return;
+          }
           await loadDrumBuffers(ctx);
 
           // reset pattern playback if already running
@@ -1208,13 +1217,15 @@
           recBtn.textContent = "rec synth";
 
           startTransport();
-          playBtn.classList.add("active");
-          if (stopBtn) stopBtn.classList.remove("active");
         });
       }
 
       if (stopBtn) {
         stopBtn.addEventListener("click", async () => {
+          // Set button state immediately
+          if (playBtn) playBtn.classList.remove("active");
+          stopBtn.classList.add("active");
+          
           // Ensure audio context is initialized and resumed
           initAudioCtx();
           if (audioCtx && audioCtx.state !== "running") {
@@ -1237,13 +1248,41 @@
             recBtn.classList.remove("recording","looping");
             recBtn.textContent = "rec synth";
           }
-          if (playBtn) playBtn.classList.remove("active");
-          stopBtn.classList.add("active");
         });
       }
 
       if (recBtn) {
         recBtn.addEventListener("click", async () => {
+          // Cancel any current recording/playback and clear pattern
+          if (recState !== "idle") {
+            // Set button states immediately
+            recState = "idle";
+            recBtn.classList.remove("recording","looping");
+            recBtn.textContent = "rec synth";
+            
+            // Ensure audio context is initialized for cleanup
+            initAudioCtx();
+            if (audioCtx && audioCtx.state !== "running") {
+              try {
+                await audioCtx.resume();
+              } catch (e) {
+                console.warn("Failed to resume audio context:", e);
+              }
+            }
+            unlockIOSAudio();
+            
+            const ctx = getAudio();
+            if (ctx) {
+              finalizeRecording();
+            }
+            synthPattern = new Array(TOTAL_STEPS).fill(null);
+            pendingNotes = {};
+            currentRecordedNote = null;
+            recStartTime = null;
+            recEndTime = null;
+            return;
+          }
+          
           // Ensure audio context is initialized and resumed
           initAudioCtx();
           if (audioCtx && audioCtx.state !== "running") {
@@ -1258,20 +1297,6 @@
           const ctx = getAudio();
           if (!ctx) return;
           await loadDrumBuffers(ctx);
-
-          // Cancel any current recording/playback and clear pattern
-          if (recState !== "idle") {
-            recState = "idle";
-            finalizeRecording();
-            synthPattern = new Array(TOTAL_STEPS).fill(null);
-            pendingNotes = {};
-            currentRecordedNote = null;
-            recStartTime = null;
-            recEndTime = null;
-            recBtn.classList.remove("recording","looping");
-            recBtn.textContent = "rec synth";
-            return;
-          }
 
           // If transport not running, start it after a 4-beat count-in.
           if (!transportRunning) {
@@ -1316,6 +1341,10 @@
               }, 25);
             }
 
+            // Set button states immediately
+            if (playBtn) playBtn.classList.add("active");
+            if (stopBtn) stopBtn.classList.remove("active");
+            
             // count-in display 4,3,2,1
             recState = "count-in";
             recBtn.classList.add("recording");
@@ -1356,9 +1385,6 @@
               recBtn.classList.add("looping");
               recBtn.textContent = "looping";
             }, toEndMs);
-
-            if (playBtn) playBtn.classList.add("active");
-            if (stopBtn) stopBtn.classList.remove("active");
 
           } else {
             // Transport is running: arm recording for NEXT full loop at 1.1
