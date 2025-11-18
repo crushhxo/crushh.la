@@ -668,7 +668,7 @@
 
         const now = ctx.currentTime;
         const isOn = (gain.gain.value || 0) > 0.001;
-        const target = isOn ? 0 : 0.75;
+        const target = isOn ? 0 : 0.50;
 
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
@@ -793,30 +793,31 @@
       }
 
       function startStepTimer() {
-        const ctx = getAudio();
-        if (!ctx) return;
-        if (stepTimer) return;
-        const len = getLoopLength();
-        const sixteenth = len / 64;
-        stepTimer = setInterval(() => {
-          const c = getAudio();
-          if (!c) return;
-          const pos = getLoopPosition(c);
-          const stepIndex = Math.floor(pos / sixteenth) % 64;
-          if (stepIndex === lastStepIndex) return;
-          lastStepIndex = stepIndex;
-          if (stepDots.length) {
-            const barStep = stepIndex % 16;
-            stepDots.forEach((dot, idx) => {
-              if (idx === barStep) {
-                dot.classList.add("active");
-              } else {
-                dot.classList.remove("active");
-              }
-            });
-          }
-        }, 30);
-      }
+  const ctx = getAudio();
+  if (!ctx) return;
+  if (stepTimer) return;
+  const len = getLoopLength();
+  // 4 bars of 4/4 = 16 quarter notes
+  const stepLength = len / 16; // each step = 1 quarter note
+  stepTimer = setInterval(() => {
+    const c = getAudio();
+    if (!c) return;
+    const pos = getLoopPosition(c);
+    // 16 steps across the full loop
+    const stepIndex = Math.floor(pos / stepLength) % 16;
+    if (stepIndex === lastStepIndex) return;
+    lastStepIndex = stepIndex;
+    if (stepDots.length) {
+      stepDots.forEach((dot, idx) => {
+        if (idx === stepIndex) {
+          dot.classList.add("active");
+        } else {
+          dot.classList.remove("active");
+        }
+      });
+    }
+  }, 30);
+}
 
       function stopStepTimer() {
         if (stepTimer) {
