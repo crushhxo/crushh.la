@@ -376,7 +376,7 @@
     </div>
   </div>
 
-      <script>
+  <script>
     // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
     let iosAudioUnlocked = false;
     let audioCtx = null;
@@ -506,7 +506,7 @@
       }
     });
 
-    // Synth / drums / sequencer
+    // Synth / drums / sequencer with global transport
     document.addEventListener("DOMContentLoaded", () => {
       if (!window.AudioContext && !window.webkitAudioContext) {
         console.warn("Web Audio API not supported in this browser.");
@@ -514,10 +514,13 @@
       }
 
       const BPM = 130;
-      const BEAT_DUR = 60 / BPM;    // one beat in seconds
-      const LOOP_BEATS = 16;        // 4 bars of 4/4
-      const LOOP_STEPS = 64;        // 16ths across 4 bars
-      const STEP_LEN = (LOOP_BEATS * BEAT_DUR) / LOOP_STEPS; // one 16th in seconds
+      const BEAT_DUR = 60 / BPM;      // seconds per beat
+      const LOOP_BEATS = 16;          // 4 bars of 4/4
+      const LOOP_STEPS = 64;          // 16th notes
+      const STEP_LEN = (LOOP_BEATS * BEAT_DUR) / LOOP_STEPS; // seconds per 16th
+
+      // global transport anchor: beat 0 for the whole page
+      let transportStartTime = null;
 
       // Note → frequency map (C1–C2) with sharps
       const noteFreq = {
@@ -584,10 +587,17 @@
             audioCtx.resume();
           } catch (e) {}
         }
+
+        // initialize global transport anchor once
+        if (transportStartTime === null) {
+          const now = audioCtx.currentTime;
+          transportStartTime = now + 0.2; // tiny lead-in for stability
+        }
+
         return audioCtx;
       }
 
-      // Live synth voice for playing
+      // Live synth voice (for direct playing, not sequencer playback)
       let currentVoice = null; // { osc, gain }
       const glideTime = 0.08;
 
@@ -685,7 +695,11 @@
         await loadDrumBuffers(ctx);
         if (Object.keys(drumSources).length) return;
 
-        const startTime = ctx.currentTime + 0.05;
+        const startTime = transportStartTime || (ctx.currentTime + 0.2);
+        if (transportStartTime === null) {
+          transportStartTime = startTime;
+        }
+
         for (const part of drumParts) {
           const buffer = drumBuffers[part];
           if (!buffer) continue;
@@ -703,6 +717,8 @@
           drumSources[part] = src;
           drumGains[part] = gain;
         }
+
+        startTransportIfNeeded();
       }
 
       async function toggleDrumPart(part, buttonEl) {
@@ -715,7 +731,7 @@
 
         const now = ctx.currentTime;
         const isOn = (gain.gain.value || 0) > 0.001;
-        const target = isOn ? 0 : 0.375; // ~50% of old 0.75
+        const target = isOn ? 0 : 0.375; // ~50% of original loudness
 
         gain.gain.cancelScheduledValues(now);
         gain.gain.setValueAtTime(gain.gain.value, now);
@@ -731,15 +747,13 @@
       }
 
       // Sequencer grid: 64 steps (16ths)
-      let grid = Array.from({ length: LOOP_STEPS }, () => []);
+      let grid = Array.from({ length: LOOP_STEPS }, () => []); // grid[step] = [{note, lengthSteps}, ...]
       let pendingNotes = {}; // note -> { startStep }
 
-      // Transport for steps + visual bar
+      // Transport for steps + visual bar (derived from global clock)
       let stepDots = [];
       let stepTimer = null;
-      let currentStep = 0;
-      let nextStepTime = 0;
-      let transportStartTime = null;
+      let lastStepIndex = null;
 
       function triggerSeqNote(noteName, durationSeconds, startTime) {
         const mapped = scaleMap[noteName] || noteName;
@@ -781,45 +795,44 @@
         osc.stop(t0 + total + 0.05);
       }
 
-      function startTransport(startAt) {
+      function startTransportIfNeeded() {
         const ctx = getAudio();
-        if (!ctx) return;
-        transportStartTime = startAt;
-        currentStep = 0;
-        nextStepTime = startAt;
-        if (stepTimer) clearInterval(stepTimer);
+        if (!ctx || stepTimer || transportStartTime === null) return;
 
         stepTimer = setInterval(() => {
           const c = getAudio();
-          if (!c) return;
+          if (!c || transportStartTime === null) return;
+
           const now = c.currentTime;
-          const lookahead = 0.1;
+          const elapsed = now - transportStartTime;
+          if (elapsed < 0) return;
 
-          while (nextStepTime <= now + lookahead) {
-            const stepIndex = currentStep;
+          const totalStepsFloat = elapsed / STEP_LEN;
+          const stepIndex = ((Math.floor(totalStepsFloat) % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
 
-            // quarter-note indicator: 4 steps per dot (64 steps / 16 dots)
-            if (stepDots.length) {
-              const quarterIndex = Math.floor(stepIndex / 4); // 0..15
-              stepDots.forEach((dot, idx) => {
-                if (idx === quarterIndex) {
-                  dot.classList.add("active");
-                } else {
-                  dot.classList.remove("active");
-                }
-              });
-            }
+          if (stepIndex === lastStepIndex) return;
+          lastStepIndex = stepIndex;
 
-            // playback
-            if (recState === "playing" && grid[stepIndex].length) {
-              const when = nextStepTime;
-              grid[stepIndex].forEach(evt => {
-                triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, when);
-              });
-            }
+          // 16-dot quarter-note indicator (4 steps per dot)
+          if (stepDots.length) {
+            const quarterIndex = Math.floor(stepIndex / 4); // 0..15
+            stepDots.forEach((dot, idx) => {
+              if (idx === quarterIndex) {
+                dot.classList.add("active");
+              } else {
+                dot.classList.remove("active");
+              }
+            });
+          }
 
-            currentStep = (currentStep + 1) % LOOP_STEPS;
-            nextStepTime += STEP_LEN;
+          // playback: schedule notes on this step
+          if (recState === "playing" && grid[stepIndex].length) {
+            const loopIndex = Math.floor(totalStepsFloat / LOOP_STEPS); // which loop iteration
+            const stepGlobalTime =
+              transportStartTime + loopIndex * LOOP_STEPS * STEP_LEN + stepIndex * STEP_LEN;
+            grid[stepIndex].forEach(evt => {
+              triggerSeqNote(evt.note, evt.lengthSteps * STEP_LEN, stepGlobalTime);
+            });
           }
         }, 25);
       }
@@ -829,7 +842,7 @@
           clearInterval(stepTimer);
           stepTimer = null;
         }
-        transportStartTime = null;
+        lastStepIndex = null;
         if (stepDots.length) {
           stepDots.forEach(dot => dot.classList.remove("active"));
         }
@@ -844,33 +857,34 @@
       function recordNoteOn(note) {
         if (recState !== "recording") return;
         const ctx = getAudio();
-        if (!ctx) return;
+        if (!ctx || transportStartTime === null) return;
+
         const now = ctx.currentTime;
         if (now < recStartTime || now > recEndTime) return;
 
-        const rel = now - recStartTime;
-        let step = Math.round(rel / STEP_LEN);
-        if (step < 0) step = 0;
-        if (step >= LOOP_STEPS) step = LOOP_STEPS - 1;
+        const elapsed = now - transportStartTime;
+        const totalSteps = Math.round(elapsed / STEP_LEN);
+        let stepIndex = ((totalSteps % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
 
-        pendingNotes[note] = { startStep: step };
+        pendingNotes[note] = { startStep: stepIndex };
       }
 
       function recordNoteOff(note) {
         if (recState !== "recording") return;
         const ctx = getAudio();
-        if (!ctx) return;
+        if (!ctx || transportStartTime === null) return;
+
         const data = pendingNotes[note];
         if (!data) return;
 
         const now = ctx.currentTime;
-        const rel = now - recStartTime;
-        let endStep = Math.round(rel / STEP_LEN);
+        const elapsed = now - transportStartTime;
+        let totalSteps = Math.round(elapsed / STEP_LEN);
+        let endStep = ((totalSteps % LOOP_STEPS) + LOOP_STEPS) % LOOP_STEPS;
 
-        if (endStep <= data.startStep) endStep = data.startStep + 1;
-        if (endStep > LOOP_STEPS) endStep = LOOP_STEPS;
+        let lengthSteps = endStep - data.startStep;
+        if (lengthSteps <= 0) lengthSteps += LOOP_STEPS; // wrap across loop
 
-        const lengthSteps = endStep - data.startStep;
         if (lengthSteps > 0) {
           grid[data.startStep].push({ note, lengthSteps });
         }
@@ -878,7 +892,7 @@
       }
 
       function finalizeRecording() {
-        // Close any held notes at the end of the loop
+        // Close any held notes at loop boundary
         Object.entries(pendingNotes).forEach(([note, data]) => {
           const lengthSteps = LOOP_STEPS - data.startStep;
           if (lengthSteps > 0) {
@@ -918,7 +932,7 @@
           const ctx = getAudio();
           if (!ctx) return;
 
-          // If we are mid count-in / recording / playing → cancel back to idle
+          // Cancel from any active state back to idle
           if (recState === "count-in" || recState === "recording" || recState === "playing") {
             recState = "idle";
             finalizeRecording();
@@ -931,49 +945,54 @@
             return;
           }
 
-          // Start a fresh pass: 4-beat count-in, then record 4 bars, then loop
+          // Start a fresh pass: quantized count-in, record 4 bars, then loop
           ensureDrumsStarted();
+          startTransportIfNeeded();
+
           grid = Array.from({ length: LOOP_STEPS }, () => []);
           pendingNotes = {};
           currentRecordedNote = null;
 
           const now = ctx.currentTime;
-          const baseTime = now + 0.3; // tiny lead-in so scheduling feels tight
+          if (transportStartTime === null) {
+            transportStartTime = now + 0.2;
+          }
 
-          const countInBeats = 4;
-          const recordBeats = LOOP_BEATS; // 16
-          const countInDur = countInBeats * BEAT_DUR;
-          const recordDur = recordBeats * BEAT_DUR;
+          const elapsedBeats = (now - transportStartTime) / BEAT_DUR;
+          const currentBarIndex = Math.floor(elapsedBeats / 4);
+          const nextBarIndex = currentBarIndex + 1;
 
-          recStartTime = baseTime + countInDur;
-          recEndTime = recStartTime + recordDur;
+          const countInBarIndex = nextBarIndex;      // upcoming bar = count-in
+          const recBarIndex = countInBarIndex + 1;   // bar after that = bar 1 of recording
+
+          const countInStartBeat = countInBarIndex * 4;
+          const recStartBeat = recBarIndex * 4;
+          const recEndBeat = recStartBeat + LOOP_BEATS; // 4 bars
+
+          const countInStartTime = transportStartTime + countInStartBeat * BEAT_DUR;
+          recStartTime = transportStartTime + recStartBeat * BEAT_DUR;
+          recEndTime = transportStartTime + recEndBeat * BEAT_DUR;
 
           recState = "count-in";
           recordBtn.classList.add("recording");
           recordBtn.classList.remove("looping");
-          recordBtn.textContent = "count-in";
+          recordBtn.textContent = "4";
 
-// --- COUNT-IN VISUAL (4 → 3 → 2 → 1) ---
-for (let i = 0; i < 4; i++) {
-  const beatTime = baseTime + i * BEAT_DUR;
-  const displayNumber = 4 - i;
+          // COUNT-IN VISUAL (4 → 3 → 2 → 1)
+          for (let i = 0; i < 4; i++) {
+            const beatTime = countInStartTime + i * BEAT_DUR;
+            const displayNumber = 4 - i;
+            const delayMs = Math.max(0, (beatTime - now) * 1000);
 
-  // Schedule UI update on each beat
-  setTimeout(() => {
-    recordBtn.textContent = displayNumber.toString();
-  }, (beatTime - now) * 1000);
-}
+            setTimeout(() => {
+              if (recState === "count-in") {
+                recordBtn.textContent = displayNumber.toString();
+              }
+            }, delayMs);
+          }
 
-// When count-in ends, show active recording state
-setTimeout(() => {
-  recordBtn.textContent = "rec*";
-}, (recStartTime - now) * 1000);
-
-          // Start transport at the actual bar 1, AFTER the 4-beat count-in
-startTransport(recStartTime);
-
-          // Switch into "recording" after count-in
-          const toRecordMs = Math.max(0, (recStartTime - ctx.currentTime) * 1000);
+          // Switch into "recording" at recStartTime
+          const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
           setTimeout(() => {
             if (recState !== "count-in") return;
             recState = "recording";
@@ -981,7 +1000,7 @@ startTransport(recStartTime);
           }, toRecordMs);
 
           // End recording after 4 bars and start looping
-          const toEndMs = Math.max(0, (recEndTime - ctx.currentTime) * 1000);
+          const toEndMs = Math.max(0, (recEndTime - now) * 1000);
           setTimeout(() => {
             if (recState !== "recording") return;
             recState = "playing";
