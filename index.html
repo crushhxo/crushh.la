@@ -11,20 +11,21 @@
       background: #ffffff;
       color: #111111;
       font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-      height: 100vh;
-      overflow: hidden;
+      min-height: 100vh;
+      overflow-x: hidden;
+      overflow-y: auto;
       cursor: default;
     }
 
     .center-shell {
-      position: fixed;
-      inset: 0;
+      position: relative;
+      min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
       box-sizing: border-box;
-      padding: 20px;
+      padding: 40px 20px 32px;
       perspective: 1200px;
       transform-style: preserve-3d;
     }
@@ -192,6 +193,63 @@
     }
 
     /* transport + sequencer */
+    .step-indicator {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      max-width: 260px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      box-sizing: border-box;
+      border: 1px solid #111111;
+      background: #ffffff;
+      transition: background 80ms ease, transform 80ms ease;
+    }
+
+    .step-dot.active {
+      background: #111111;
+      transform: translateY(1px);
+    }
+
+    .seq-controls {
+      margin-top: 6px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .seq-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.12em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .seq-button.recording {
+      background: #b80000;
+      border-color: #b80000;
+      color: #f7f7f7;
+      transform: translateY(1px);
+    }
+
+    .seq-button.looping {
+      background: #111111;
+      border-color: #111111;
+      color: #f7f7f7;
+    }
+
     .transport {
       margin-top: 10px;
       display: flex;
@@ -223,72 +281,15 @@
       transform: translateY(1px);
     }
 
-    .step-indicator {
-      margin-top: 10px;
-      display: flex;
-      justify-content: center;
-      gap: 4px;
-      max-width: 260px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .step-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 2px;
-      box-sizing: border-box;
-      border: 1px solid #111111;
-      background: #ffffff;
-      transition: background 80ms ease, transform 80ms ease;
-    }
-
-    .step-dot.active {
-      background: #111111;
-      transform: translateY(1px);
-    }
-
-    .seq-controls {
-      margin-top: 8px;
-      display: flex;
-      justify-content: center;
-    }
-
-    .seq-button {
-      font-size: 10px;
-      text-transform: lowercase;
-      padding: 3px 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(0, 0, 0, 0.35);
-      background: rgba(0, 0, 0, 0.03);
-      color: #111111;
-      cursor: pointer;
-      letter-spacing: 0.12em;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
-    }
-
-    .seq-button.recording {
-      background: #b80000;
-      border-color: #b80000;
-      color: #f7f7f7;
-      transform: translateY(1px);
-    }
-
-    .seq-button.looping {
-      background: #111111;
-      border-color: #111111;
-      color: #f7f7f7;
-    }
-
     /* drums */
     .drums {
-      margin-top: 18px;
-      max-width: 260px; /* match piano width */
+      margin-top: 16px;
+      max-width: 260px; /* matches piano width */
       margin-left: auto;
       margin-right: auto;
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      column-gap: 10px;
+      column-gap: 12px;
       row-gap: 12px;
       align-items: flex-start;
       justify-items: center;
@@ -299,9 +300,9 @@
     }
 
     .drum-lane[data-part="perc"] {
-      grid-column: 1 / span 2;
-      justify-self: center;
-      max-width: 130px;
+      grid-column: 1 / -1;
+      max-width: 140px;
+      margin: 0 auto;
     }
 
     .drum-header {
@@ -344,7 +345,7 @@
       background: rgba(0, 0, 0, 0.02);
       color: #111111;
       letter-spacing: 0.08em;
-      text-transform: uppercase;
+      text-transform: none; /* keep "sound 1" lowercase */
       outline: none;
       cursor: pointer;
     }
@@ -355,7 +356,7 @@
       grid-template-columns: repeat(4, minmax(12px, 1fr));
       grid-template-rows: repeat(4, 16px);
       gap: 3px;
-      max-width: 120px; /* narrower sequencer blocks */
+      max-width: 120px; /* narrower blocks */
     }
 
     .drum-cell {
@@ -377,7 +378,7 @@
       font-size: 11px;
       font-style: italic;
       color: rgba(0, 0, 0, 0.55);
-      margin-top: 8px;
+      margin-top: 10px;
       margin-bottom: 10px;
     }
 
@@ -468,10 +469,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="kick">kick</button>
             <select class="drum-select" data-part="kick">
-              <option value="1">Sound 1</option>
-              <option value="2">Sound 2</option>
-              <option value="3">Sound 3</option>
-              <option value="4">Sound 4</option>
+              <option value="1">sound 1</option>
+              <option value="2">sound 2</option>
+              <option value="3">sound 3</option>
+              <option value="4">sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="kick"></div>
@@ -481,10 +482,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="snare">snare</button>
             <select class="drum-select" data-part="snare">
-              <option value="1">Sound 1</option>
-              <option value="2">Sound 2</option>
-              <option value="3">Sound 3</option>
-              <option value="4">Sound 4</option>
+              <option value="1">sound 1</option>
+              <option value="2">sound 2</option>
+              <option value="3">sound 3</option>
+              <option value="4">sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="snare"></div>
@@ -494,10 +495,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="ch">ch</button>
             <select class="drum-select" data-part="ch">
-              <option value="1">Sound 1</option>
-              <option value="2">Sound 2</option>
-              <option value="3">Sound 3</option>
-              <option value="4">Sound 4</option>
+              <option value="1">sound 1</option>
+              <option value="2">sound 2</option>
+              <option value="3">sound 3</option>
+              <option value="4">sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="ch"></div>
@@ -507,10 +508,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="oh">oh</button>
             <select class="drum-select" data-part="oh">
-              <option value="1">Sound 1</option>
-              <option value="2">Sound 2</option>
-              <option value="3">Sound 3</option>
-              <option value="4">Sound 4</option>
+              <option value="1">sound 1</option>
+              <option value="2">sound 2</option>
+              <option value="3">sound 3</option>
+              <option value="4">sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="oh"></div>
@@ -520,10 +521,10 @@
           <div class="drum-header">
             <button class="drum-button" data-part="perc">perc</button>
             <select class="drum-select" data-part="perc">
-              <option value="1">Sound 1</option>
-              <option value="2">Sound 2</option>
-              <option value="3">Sound 3</option>
-              <option value="4">Sound 4</option>
+              <option value="1">sound 1</option>
+              <option value="2">sound 2</option>
+              <option value="3">sound 3</option>
+              <option value="4">sound 4</option>
             </select>
           </div>
           <div class="drum-grid" data-part="perc"></div>
@@ -719,6 +720,7 @@
         transportStartTime = now + 0.15;
         transportRunning = true;
 
+        const rel = 0;
         globalStepCounter = 0;
         nextStepTime = transportStartTime + STEP_DUR;
         lastQuarterVisual = null;
