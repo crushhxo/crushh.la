@@ -312,6 +312,7 @@
       display: flex;
       justify-content: center;
       gap: 6px;
+      position: relative;
     }
 
     .transport-button {
@@ -336,6 +337,101 @@
       color: #f7f7f7;
       border-color: #111111;
       transform: translateY(1px);
+    }
+
+    .tooltip-button {
+      position: absolute;
+      right: calc(50% - 130px + 120px); /* Align with right edge of drum sequencers (260px container, 120px grid) */
+      font-size: 11px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      font-weight: normal;
+      line-height: 1;
+    }
+
+    .tooltip-button:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .tooltip-dialogue {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 320px;
+      width: calc(100% - 40px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 1000;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #111111;
+      display: none;
+    }
+
+    .tooltip-dialogue.active {
+      display: block;
+    }
+
+    .tooltip-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 999;
+      display: none;
+    }
+
+    .tooltip-overlay.active {
+      display: block;
+    }
+
+    .tooltip-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      border: none;
+      font-size: 18px;
+      color: #111111;
+      cursor: pointer;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.6;
+      transition: opacity 120ms ease;
+    }
+
+    .tooltip-close:hover {
+      opacity: 1;
+    }
+
+    @media (max-width: 430px) {
+      .tooltip-button {
+        right: calc(50% - 130px + 120px);
+      }
+
+      .tooltip-dialogue {
+        max-width: 280px;
+        padding: 16px;
+        font-size: 11px;
+      }
     }
 
     /* drums */
@@ -525,6 +621,7 @@
       <div class="transport">
         <button class="transport-button" id="transport-play">play</button>
         <button class="transport-button" id="transport-stop">stop</button>
+        <button class="tooltip-button" id="tooltip-button">?</button>
       </div>
 
       <!-- drums -->
@@ -601,6 +698,13 @@
         <a href="mailto:contact@crushh.la">contact@crushh.la</a>
       </div>
     </div>
+  </div>
+
+  <!-- Tooltip Dialogue -->
+  <div class="tooltip-overlay" id="tooltip-overlay"></div>
+  <div class="tooltip-dialogue" id="tooltip-dialogue">
+    <button class="tooltip-close" id="tooltip-close">×</button>
+    <p>This is a playable saw wave synthesizer running on a 64 step sequencer. There are also 5 unique drum sequencers with 16 steps each. You can choose from 4 drum sounds within each sequencer. The "m" buttons are part mutes. The "play" button always restarts the sequence at bar 1.1. The "rec synth" button will record a played synth sequence, and will always start recording from bar 1.1 and automatically stop at bar 4.4. If the sequencer is playing while you hit "rec synth", the recording will wait until bar 4.1 to count you in 4 counts to start recording on bar 1.1 Have fun!</p>
   </div>
 
   <script>
@@ -1754,6 +1858,52 @@
 
       document.body.appendChild(trail);
       setTimeout(() => trail.remove(), 750);
+    });
+
+    // Tooltip functionality
+    document.addEventListener("DOMContentLoaded", () => {
+      const tooltipButton = document.getElementById("tooltip-button");
+      const tooltipDialogue = document.getElementById("tooltip-dialogue");
+      const tooltipOverlay = document.getElementById("tooltip-overlay");
+      const tooltipClose = document.getElementById("tooltip-close");
+
+      function openTooltip() {
+        tooltipDialogue.classList.add("active");
+        tooltipOverlay.classList.add("active");
+      }
+
+      function closeTooltip() {
+        tooltipDialogue.classList.remove("active");
+        tooltipOverlay.classList.remove("active");
+      }
+
+      if (tooltipButton) {
+        tooltipButton.addEventListener("click", (e) => {
+          e.preventDefault();
+          openTooltip();
+        });
+      }
+
+      if (tooltipClose) {
+        tooltipClose.addEventListener("click", (e) => {
+          e.preventDefault();
+          closeTooltip();
+        });
+      }
+
+      if (tooltipOverlay) {
+        tooltipOverlay.addEventListener("click", (e) => {
+          e.preventDefault();
+          closeTooltip();
+        });
+      }
+
+      // Close on Escape key
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && tooltipDialogue.classList.contains("active")) {
+          closeTooltip();
+        }
+      });
     });
   </script>
 
