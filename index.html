@@ -900,18 +900,6 @@
             const now2 = c.currentTime;
             const lookahead = 0.1;
 
-            // Schedule synth pattern at the start of each loop
-            if (loopDuration && recStartTime) {
-              const elapsed = now2 - transportStartTime;
-              const currentLoopIndex = Math.floor(elapsed / loopDuration);
-              const nextLoopStart = transportStartTime + (currentLoopIndex + 1) * loopDuration;
-              
-              // Schedule the next loop iteration if it's coming up
-              if (nextLoopStart <= now2 + lookahead && nextLoopStart > now2 - loopDuration) {
-                scheduleSynthForLoop(nextLoopStart);
-              }
-            }
-
             while (nextStepTime <= now2 + lookahead) {
               const localStep = globalStepCounter % TOTAL_STEPS;
 
@@ -926,8 +914,9 @@
                 }
               }
 
-              // schedule drums for this step
+              // schedule drums & synth notes for this step
               scheduleDrumsForStep(localStep, nextStepTime);
+              scheduleSynthForStep(localStep, nextStepTime);
 
               // Increment AFTER scheduling so step 0 plays at transportStartTime
               globalStepCounter++;
@@ -1214,42 +1203,30 @@
         }
       }
 
-      // --- SYNTH SEQUENCER (clean loop recording, no quantization) ---
-      let synthPattern = []; // Array of {note, startTime, duration} - exact timings relative to loop start
+      // --- SYNTH SEQUENCER (simple 64-step, 4-bar looper) ---
+      // Each step can have notes with exact timings: {note, startOffset, duration}
+      // startOffset is relative to the step start (0 to STEP_DUR)
+      let synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // 64 steps, each is an array of notes
       let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
       let recStartTime = null;
       let recEndTime = null;
-      let loopDuration = null; // Duration of one loop (4 bars)
-      let pendingNotes = {}; // mappedNote -> { actualStartTime }
+      let pendingNotes = {}; // mappedNote -> { actualStartTime, stepIndex }
       let currentRecordedNote = null;
       
       // Sequencer voice for portamento (separate from live voice)
       let sequencerVoice = null;
       let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
-      let lastScheduledLoop = -1; // Track which loop iteration we last scheduled
-      
-      function scheduleSynthForLoop(loopStartTime) {
-        if (recState !== "playing" || synthPattern.length === 0 || !loopDuration) return;
-        const ctx = getAudio();
-        if (!ctx) return;
+      function scheduleSynthForStep(globalStep, when) {
+        if (recState !== "playing") return;
+        const localStep = globalStep % TOTAL_STEPS;
+        const stepNotes = synthPattern[localStep];
+        if (!stepNotes || stepNotes.length === 0) return;
         
-        // Calculate which loop iteration this is
-        const loopIndex = Math.floor((loopStartTime - recStartTime) / loopDuration);
-        
-        // Only schedule once per loop iteration to avoid duplicates
-        if (loopIndex === lastScheduledLoop) return;
-        lastScheduledLoop = loopIndex;
-        
-        // Schedule all notes in the pattern for this loop iteration
-        // Each note's startTime is relative to the loop start (recStartTime)
-        synthPattern.forEach(evt => {
-          // Calculate when this note should play in this loop iteration
-          const noteStartTime = loopStartTime + evt.startTime;
-          // Only schedule if note is within the loop duration
-          if (evt.startTime >= 0 && evt.startTime < loopDuration) {
-            triggerSeqNote(evt.note, evt.duration, noteStartTime);
-          }
+        // Schedule all notes in this step at their exact recorded times
+        stepNotes.forEach(noteData => {
+          const noteStartTime = when + noteData.startOffset;
+          triggerSeqNote(noteData.note, noteData.duration, noteStartTime);
         });
       }
 
@@ -1438,24 +1415,28 @@
 
         const now = ctx.currentTime;
         
-        // If note is played slightly before 1.1, carry it over to start at 1.1
-        let noteStartTime = now;
-        if (now < recStartTime) {
-          // Note played before recording start - carry it over to start at 1.1
-          noteStartTime = recStartTime;
-        }
+        // If note is played before 1.1, carry it over to start at 1.1
+        let noteStartTime = Math.max(now, recStartTime);
         
         // Don't record notes after recording end
-        if (noteStartTime > recEndTime) return;
+        if (noteStartTime >= recEndTime) return;
 
         // monophonic: close any pending notes first
         Object.keys(pendingNotes).forEach(existing => {
           recordNoteOff(existing);
         });
 
-        // Store the actual start time (relative to recStartTime will be calculated on note off)
+        // Calculate which step this note belongs to (0-63)
+        const elapsed = noteStartTime - recStartTime;
+        const stepIndex = Math.floor(elapsed / STEP_DUR);
+        
+        // Clamp to valid step range
+        if (stepIndex < 0 || stepIndex >= TOTAL_STEPS) return;
+
+        // Store the actual start time and step index
         pendingNotes[mappedNote] = { 
-          actualStartTime: noteStartTime  // Store actual time, will be relative to recStartTime
+          actualStartTime: noteStartTime,
+          stepIndex: stepIndex
         };
       }
 
@@ -1467,33 +1448,30 @@
         if (!data) return;
 
         const now = ctx.currentTime;
+        const stepIndex = data.stepIndex;
         
-        // Calculate start time relative to recStartTime (loop start)
-        // If note was played before 1.1, it starts at 0 (1.1)
-        let startTime = data.actualStartTime - recStartTime;
-        if (startTime < 0) startTime = 0; // Notes before 1.1 start at 1.1
+        // Calculate start offset within the step (0 to STEP_DUR)
+        const stepStartTime = recStartTime + (stepIndex * STEP_DUR);
+        const startOffset = data.actualStartTime - stepStartTime;
         
         // Calculate duration - exact as played
         let duration = now - data.actualStartTime;
         
-        // Clamp note end to recording end (next 1.1) for smooth looping
+        // Clamp note end to recording end (next 1.1) for clean loop
         if (now > recEndTime) {
           duration = recEndTime - data.actualStartTime;
         }
         
-        // Ensure duration is positive and note doesn't extend past loop
+        // Ensure duration is positive
         duration = Math.max(0, duration);
-        if (startTime + duration > loopDuration) {
-          duration = loopDuration - startTime;
-        }
         
-        // Only record if duration is positive and within loop bounds
-        if (duration > 0 && startTime >= 0 && startTime < loopDuration) {
-          // Store note with exact timing relative to loop start - NO quantization
-          synthPattern.push({
+        // Only record if duration is positive and within valid step
+        if (duration > 0 && stepIndex >= 0 && stepIndex < TOTAL_STEPS && startOffset >= 0) {
+          // Store note with exact timing within the step
+          synthPattern[stepIndex].push({
             note: mappedNote,
-            startTime: startTime,  // Relative to recStartTime (1.1)
-            duration: duration    // Exact duration as played
+            startOffset: startOffset,  // Offset within step (0 to STEP_DUR)
+            duration: duration         // Exact duration as played
           });
         }
 
@@ -1505,26 +1483,23 @@
         const ctx = getAudio();
         if (ctx && recEndTime !== null && recStartTime !== null) {
           Object.entries(pendingNotes).forEach(([note, data]) => {
-            // Calculate start time relative to recStartTime
-            let startTime = data.actualStartTime - recStartTime;
-            if (startTime < 0) startTime = 0; // Notes before 1.1 start at 1.1
+            const stepIndex = data.stepIndex;
+            
+            // Calculate start offset within the step
+            const stepStartTime = recStartTime + (stepIndex * STEP_DUR);
+            const startOffset = data.actualStartTime - stepStartTime;
             
             // Calculate duration from actual start to recording end
             let duration = recEndTime - data.actualStartTime;
-            
-            // Ensure duration is positive and note doesn't extend past loop
             duration = Math.max(0, duration);
-            if (startTime + duration > loopDuration) {
-              duration = loopDuration - startTime;
-            }
             
-            // Only record if duration is positive and within loop bounds
-            if (duration > 0 && startTime >= 0 && startTime < loopDuration) {
-              // Store note with exact timing - NO quantization
-              synthPattern.push({
+            // Only record if duration is positive and within valid step
+            if (duration > 0 && stepIndex >= 0 && stepIndex < TOTAL_STEPS && startOffset >= 0) {
+              // Store note with exact timing within the step
+              synthPattern[stepIndex].push({
                 note: note,
-                startTime: startTime,  // Relative to recStartTime (1.1)
-                duration: duration    // Exact duration, cut off at next 1.1
+                startOffset: startOffset,  // Offset within step
+                duration: duration        // Exact duration, cut off at next 1.1
               });
             }
           });
@@ -1631,7 +1606,7 @@
 
           // reset pattern playback if already running
           stopTransport();
-          synthPattern = [];
+          synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
           recState = "idle";
           pendingNotes = {};
           currentRecordedNote = null;
@@ -1641,11 +1616,6 @@
           recBtn.textContent = "rec synth";
 
           startTransport();
-          
-          // Schedule first loop if pattern exists
-          if (synthPattern.length > 0 && loopDuration && recStartTime) {
-            scheduleSynthForLoop(transportStartTime);
-          }
         });
       }
 
@@ -1673,8 +1643,7 @@
           currentRecordedNote = null;
           recStartTime = null;
           recEndTime = null;
-          loopDuration = null;
-          synthPattern = [];
+          synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
           if (recBtn) {
             recBtn.classList.remove("recording","looping");
             recBtn.textContent = "rec synth";
@@ -1707,7 +1676,7 @@
             if (ctx) {
               finalizeRecording();
             }
-            synthPattern = [];
+            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
             pendingNotes = {};
             currentRecordedNote = null;
             recStartTime = null;
@@ -1752,18 +1721,6 @@
                 const now2 = c.currentTime;
                 const lookahead = 0.1;
 
-                // Schedule synth pattern at the start of each loop
-                if (loopDuration && recStartTime) {
-                  const elapsed = now2 - transportStartTime;
-                  const currentLoopIndex = Math.floor(elapsed / loopDuration);
-                  const nextLoopStart = transportStartTime + (currentLoopIndex + 1) * loopDuration;
-                  
-                  // Schedule the next loop iteration if it's coming up
-                  if (nextLoopStart <= now2 + lookahead && nextLoopStart > now2 - loopDuration) {
-                    scheduleSynthForLoop(nextLoopStart);
-                  }
-                }
-
                 while (nextStepTime <= now2 + lookahead) {
                   const localStep = globalStepCounter % TOTAL_STEPS;
 
@@ -1778,6 +1735,7 @@
                   }
 
                   scheduleDrumsForStep(localStep, nextStepTime);
+                  scheduleSynthForStep(localStep, nextStepTime);
 
                   // Increment AFTER scheduling so step 0 plays at transportStartTime
                   globalStepCounter++;
@@ -1811,17 +1769,16 @@
               }, delay);
             }
 
-            // start recording exactly at 1.1
+            // start recording exactly at 1.1, end at next 1.1 (4 bars)
             recStartTime = transportStartTime;
-            loopDuration = LOOP_BEATS * BEAT_DUR; // 4 bars = 16 beats
-            recEndTime = recStartTime + loopDuration; // End exactly at next 1.1
-            synthPattern = []; // Clear pattern for new recording
+            recEndTime = recStartTime + LOOP_BEATS * BEAT_DUR; // End exactly at next 1.1
+            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // Clear pattern for new recording
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
               if (recState !== "count-in") return;
               recState = "recording";
-              synthPattern = [];
+              synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
               // Start metronome for entire 4-bar recording
@@ -1875,13 +1832,13 @@
 
             recStartTime = recStart;
             recEndTime = recEnd;
-            synthPattern = []; // Clear pattern for new recording
+            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // Clear pattern for new recording
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
               if (recState !== "count-in") return;
               recState = "recording";
-              synthPattern = [];
+              synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
               // Start metronome for entire 4-bar recording
