@@ -147,7 +147,7 @@
 
     /* synth piano layout */
     .synth {
-      margin-top: 12px; /* Match drum sequencer row-gap spacing */
+      margin-top: 6px; /* Reduced spacing to shift elements up */
       display: flex;
       justify-content: center;
       align-items: center;
@@ -997,7 +997,7 @@
         return curve;
       }
 
-      function playMetronomeClick(when, volume = 0.2) {
+      function playMetronomeClick(when, volume = 0.35) {
         const ctx = getAudio();
         if (!ctx) return;
         
@@ -1018,6 +1018,38 @@
         
         osc.start(when);
         osc.stop(when + 0.02);
+      }
+      
+      // Metronome for recording - plays during entire 4-bar recording
+      let metronomeInterval = null;
+      
+      function startRecordingMetronome(startTime, endTime) {
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Stop any existing metronome
+        stopRecordingMetronome();
+        
+        // Calculate all beat times during recording (16 beats = 4 bars)
+        const beatTimes = [];
+        for (let i = 0; i < LOOP_BEATS; i++) {
+          beatTimes.push(startTime + i * BEAT_DUR);
+        }
+        
+        // Schedule all metronome clicks
+        const now = ctx.currentTime;
+        beatTimes.forEach(beatTime => {
+          if (beatTime >= now && beatTime <= endTime) {
+            playMetronomeClick(beatTime, 0.35);
+          }
+        });
+      }
+      
+      function stopRecordingMetronome() {
+        if (metronomeInterval) {
+          clearInterval(metronomeInterval);
+          metronomeInterval = null;
+        }
       }
 
       // --- LIVE SYNTH VOICE (monophonic) ---
@@ -1346,7 +1378,8 @@
         if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const now = ctx.currentTime;
-        if (now < recStartTime || now > recEndTime) return;
+        // Allow small tolerance (5ms) to capture notes played exactly at recStartTime
+        if (now < recStartTime - 0.005 || now > recEndTime) return;
 
         // monophonic: close any pending notes first
         Object.keys(pendingNotes).forEach(existing => {
@@ -1552,6 +1585,7 @@
           unlockIOSAudio();
           
           stopTransport();
+          stopRecordingMetronome(); // Stop metronome when transport stops
           recState = "idle";
           pendingNotes = {};
           currentRecordedNote = null;
@@ -1573,6 +1607,7 @@
             recState = "idle";
             recBtn.classList.remove("recording","looping");
             recBtn.textContent = "rec synth";
+            stopRecordingMetronome(); // Stop metronome if recording is cancelled
             
             // Ensure audio context is initialized for cleanup
             initAudioCtx();
@@ -1672,8 +1707,8 @@
               const t = countInStart + i * BEAT_DUR;
               const delay = Math.max(0, (t - now) * 1000);
               
-              // Play metronome click at 20% volume
-              playMetronomeClick(t, 0.2);
+              // Play metronome click at 35% volume
+              playMetronomeClick(t, 0.35);
               
               setTimeout(() => {
                 if (recState === "count-in") {
@@ -1694,6 +1729,8 @@
               synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
+              // Start metronome for entire 4-bar recording
+              startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
@@ -1701,6 +1738,7 @@
               if (recState !== "recording") return;
               recState = "playing";
               finalizeRecording();
+              stopRecordingMetronome(); // Stop metronome when recording ends
               recBtn.classList.remove("recording");
               recBtn.classList.add("looping");
               recBtn.textContent = "looping";
@@ -1729,8 +1767,8 @@
               const displayNum = 4 - i;
               const delay = Math.max(0, (t - now) * 1000);
               
-              // Play metronome click at 20% volume
-              playMetronomeClick(t, 0.2);
+              // Play metronome click at 35% volume
+              playMetronomeClick(t, 0.35);
               
               setTimeout(() => {
                 if (recState === "count-in") {
@@ -1750,6 +1788,8 @@
               synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
+              // Start metronome for entire 4-bar recording
+              startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
@@ -1757,6 +1797,7 @@
               if (recState !== "recording") return;
               recState = "playing";
               finalizeRecording();
+              stopRecordingMetronome(); // Stop metronome when recording ends
               recBtn.classList.remove("recording");
               recBtn.classList.add("looping");
               recBtn.textContent = "looping";
