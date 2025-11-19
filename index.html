@@ -1635,10 +1635,10 @@
           // Force to step 0 (beat 1.1) for any note near the start
           localStart = 0;
         } else {
-          // Softer quantization: Use 8th note grid instead of 16th note grid
-          // This gives half the quantization resolution, making it less aggressive
-          const eighthStepFloat = elapsedFromRecStart / (STEP_DUR * 2);
-          localStart = Math.round(eighthStepFloat) * 2; // Snap to 8th notes, then convert to 16th step index
+          // Use 16th note quantization (full resolution) to preserve all 16th note positions
+          // This prevents doubling that was caused by 8th note quantization
+          const stepFloat = elapsedFromRecStart / STEP_DUR;
+          localStart = Math.round(stepFloat); // Snap to nearest 16th note step
         }
         
         // Clamp to valid range (shouldn't be needed with the logic above, but safety check)
