@@ -1222,10 +1222,13 @@
         const evt = synthPattern[localStep];
         if (!evt) return;
 
-        // Use precise duration if available, otherwise fall back to step-based (for backwards compatibility)
+        // Use precise duration exactly as recorded - NO quantization or rounding
+        // Only quantize the START position (when), preserve exact duration
         const duration = evt.lengthSeconds !== undefined 
-          ? evt.lengthSeconds 
-          : (evt.lengthSteps * STEP_DUR);
+          ? evt.lengthSeconds  // Use exact recorded duration in seconds
+          : (evt.lengthSteps * STEP_DUR); // Fallback for old format
+        
+        // Trigger note with exact duration at quantized start time
         triggerSeqNote(evt.note, duration, when);
       }
 
@@ -1244,15 +1247,16 @@
         const total = Math.max(0.01, durationSeconds); // Very small minimum to prevent errors, but preserve short notes
 
         // Portamento only applies when notes overlap (legato) - like Serum2
-        // If previous note has ended (staccato), start new note immediately at target frequency
+        // If previous note has ended (staccato), stop it cleanly and start new note immediately
         let startFreq = freq;
         let voiceIsActive = false;
         let shouldGlide = false;
         
         if (sequencerVoice && sequencerVoice.osc) {
           // Check if previous note is still playing (overlapping/legato)
-          // Only apply portamento if the previous note hasn't ended yet
-          if (sequencerVoice.noteEndTime > t0) {
+          // Use a small tolerance to determine if notes truly overlap
+          const overlapThreshold = 0.01; // 10ms tolerance
+          if (sequencerVoice.noteEndTime > (t0 + overlapThreshold)) {
             // Previous note is still active - this is legato/overlapping, apply portamento
             voiceIsActive = true;
             shouldGlide = true;
@@ -1265,11 +1269,26 @@
               }
             }
           } else {
-            // Previous note has ended - this is staccato, no portamento
-            // Start immediately at target frequency
+            // Previous note has ended or is ending very soon - this is staccato
+            // Stop the previous note cleanly and immediately to prevent glitches
+            try {
+              const { osc, gain } = sequencerVoice;
+              const now = ctx.currentTime;
+              
+              // Immediately stop the previous note to prevent overlap with staccato notes
+              gain.gain.cancelScheduledValues(now);
+              gain.gain.setValueAtTime(0, now); // Immediate stop, no fade for staccato
+              osc.stop(now + 0.001); // Stop oscillator immediately
+            } catch (e) {
+              // Ignore errors when stopping
+            }
+            
+            // Clear the voice completely for clean staccato playback
+            sequencerVoice = null;
             voiceIsActive = false;
             shouldGlide = false;
             startFreq = freq;
+            // Don't update lastSequencerFreq for staccato - start fresh
           }
         } else {
           // No previous note - start immediately at target frequency (no portamento)
