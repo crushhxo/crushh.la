@@ -1054,7 +1054,7 @@
 
       // --- LIVE SYNTH VOICE (monophonic) ---
       let currentVoice = null;
-      const glideTime = 0.15; // Increased for smoother, more fluid transitions
+      const glideTime = 0.08; // Portamento time for overlapping/legato notes only
 
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
@@ -1243,34 +1243,42 @@
         // Preserve the exact duration as recorded, even if very short
         const total = Math.max(0.01, durationSeconds); // Very small minimum to prevent errors, but preserve short notes
 
-        // Always use portamento - glide from last frequency (or current if voice is active)
+        // Portamento only applies when notes overlap (legato) - like Serum2
+        // If previous note has ended (staccato), start new note immediately at target frequency
         let startFreq = freq;
         let voiceIsActive = false;
+        let shouldGlide = false;
         
         if (sequencerVoice && sequencerVoice.osc) {
-          // Check if voice is actually still playing (not just scheduled to end)
-          try {
-            const oscState = sequencerVoice.osc.playbackState || 
-                           (sequencerVoice.osc._started && sequencerVoice.noteEndTime > now);
-            if (sequencerVoice.noteEndTime > now) {
-              voiceIsActive = true;
+          // Check if previous note is still playing (overlapping/legato)
+          // Only apply portamento if the previous note hasn't ended yet
+          if (sequencerVoice.noteEndTime > t0) {
+            // Previous note is still active - this is legato/overlapping, apply portamento
+            voiceIsActive = true;
+            shouldGlide = true;
+            try {
               startFreq = sequencerVoice.osc.frequency.value;
-            } else if (lastSequencerFreq !== null) {
-              startFreq = lastSequencerFreq;
+            } catch (e) {
+              // Fallback if we can't get frequency
+              if (lastSequencerFreq !== null) {
+                startFreq = lastSequencerFreq;
+              }
             }
-          } catch (e) {
-            // Oscillator might be stopped, use last frequency
-            if (lastSequencerFreq !== null) {
-              startFreq = lastSequencerFreq;
-            }
+          } else {
+            // Previous note has ended - this is staccato, no portamento
+            // Start immediately at target frequency
+            voiceIsActive = false;
+            shouldGlide = false;
+            startFreq = freq;
           }
-        } else if (lastSequencerFreq !== null) {
-          // Voice ended, but we have the last frequency - always glide from it
-          startFreq = lastSequencerFreq;
+        } else {
+          // No previous note - start immediately at target frequency (no portamento)
+          shouldGlide = false;
+          startFreq = freq;
         }
 
-        // If there's a currently playing sequencer voice and it's still active, reuse it
-        if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
+        // If there's a currently playing sequencer voice and it's still active (overlapping), reuse it with portamento
+        if (voiceIsActive && shouldGlide && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
           // Get current frequency and gain values smoothly
@@ -1285,7 +1293,7 @@
           osc.frequency.setValueAtTime(currentFreq, now);
           gain.gain.setValueAtTime(currentGain, now);
           
-          // Smooth glide to new frequency
+          // Smooth glide to new frequency (portamento for overlapping/legato notes)
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
@@ -1323,18 +1331,21 @@
           return;
         }
 
-        // No existing active voice, create new one but always start from last frequency if available
+        // No existing active voice, create new one
+        // Only apply portamento if notes overlap (legato), otherwise start immediately at target frequency
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const distortion = ctx.createWaveShaper();
 
         osc.type = "sawtooth";
         
-        // Always start from last frequency and glide to new one for fluid transitions
-        if (startFreq !== freq) {
+        // Only glide if notes overlap (legato), otherwise start immediately at target frequency (staccato)
+        if (shouldGlide && startFreq !== freq) {
+          // Legato/overlapping: glide from previous frequency
           osc.frequency.setValueAtTime(startFreq, t0);
           osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
         } else {
+          // Staccato: start immediately at target frequency (no portamento)
           osc.frequency.setValueAtTime(freq, t0);
         }
 
