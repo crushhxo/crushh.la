@@ -997,6 +997,9 @@
         return curve;
       }
 
+      // Metronome for recording - plays during entire 4-bar recording
+      let metronomeMasterGain = null; // Master gain node to control all metronome clicks
+      
       function playMetronomeClick(when, volume = 0.35) {
         const ctx = getAudio();
         if (!ctx) return;
@@ -1014,14 +1017,16 @@
         gain.gain.setValueAtTime(0, when + 0.02);
         
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        // Connect through master gain node if it exists, otherwise direct to destination
+        if (metronomeMasterGain) {
+          gain.connect(metronomeMasterGain);
+        } else {
+          gain.connect(ctx.destination);
+        }
         
         osc.start(when);
         osc.stop(when + 0.02);
       }
-      
-      // Metronome for recording - plays during entire 4-bar recording
-      let metronomeInterval = null;
       
       function startRecordingMetronome(startTime, endTime) {
         const ctx = getAudio();
@@ -1029,6 +1034,11 @@
         
         // Stop any existing metronome
         stopRecordingMetronome();
+        
+        // Create master gain node for metronome (allows muting when stopped)
+        metronomeMasterGain = ctx.createGain();
+        metronomeMasterGain.gain.setValueAtTime(1, ctx.currentTime);
+        metronomeMasterGain.connect(ctx.destination);
         
         // Calculate all beat times during recording (16 beats = 4 bars)
         const beatTimes = [];
@@ -1046,9 +1056,22 @@
       }
       
       function stopRecordingMetronome() {
-        if (metronomeInterval) {
-          clearInterval(metronomeInterval);
-          metronomeInterval = null;
+        // Mute the master gain node to stop all metronome clicks
+        if (metronomeMasterGain) {
+          const ctx = getAudio();
+          if (ctx) {
+            const now = ctx.currentTime;
+            metronomeMasterGain.gain.setValueAtTime(0, now);
+            // Disconnect and clear after a short delay
+            setTimeout(() => {
+              if (metronomeMasterGain) {
+                try {
+                  metronomeMasterGain.disconnect();
+                } catch (e) {}
+                metronomeMasterGain = null;
+              }
+            }, 100);
+          }
         }
       }
 
@@ -1378,39 +1401,46 @@
         if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const now = ctx.currentTime;
-        // Allow larger tolerance (20ms) to capture notes played exactly at recStartTime
-        // This accounts for timing precision issues and ensures beat 1.1 is captured
-        if (now < recStartTime - 0.02 || now > recEndTime) return;
+        
+        // If note is played slightly before 1.1, carry it over to start at 1.1
+        // Allow generous tolerance (up to half a step before) to capture early notes
+        let noteStartTime = now;
+        if (now < recStartTime) {
+          // Note played before recording start - carry it over to start at 1.1
+          // Only if it's within a reasonable window (half a step = ~58ms at 130 BPM)
+          if (now >= recStartTime - STEP_DUR / 2) {
+            noteStartTime = recStartTime;
+          } else {
+            return; // Too early, ignore
+          }
+        }
+        
+        // Don't record notes after recording end
+        if (noteStartTime > recEndTime) return;
 
         // monophonic: close any pending notes first
         Object.keys(pendingNotes).forEach(existing => {
           recordNoteOff(existing);
         });
 
-        // Calculate time relative to recStartTime for more accurate step calculation
-        const elapsedFromRecStart = now - recStartTime;
+        // Calculate time relative to recStartTime for step calculation
+        // Since we carried over early notes to recStartTime, elapsed will be 0 or positive
+        const elapsedFromRecStart = noteStartTime - recStartTime;
         const stepFloat = elapsedFromRecStart / STEP_DUR;
-        // Round to nearest step, but ensure step 0 is captured for notes at or very close to recStartTime
+        // Round to nearest step
         let localStart = Math.round(stepFloat);
         
-        // Clamp to valid range, but be generous for step 0 (beat 1.1)
-        if (localStart < 0) {
-          // If note is very close to recStartTime (within half a step), map it to step 0
-          if (elapsedFromRecStart >= -STEP_DUR / 2) {
-            localStart = 0;
-          } else {
-            return; // Too early, ignore
-          }
-        }
+        // Clamp to valid range
+        if (localStart < 0) localStart = 0;
         if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
         // Store quantized start step AND actual start time for precise duration calculation
-        // Calculate globalStepNow for reference (using timeToGlobalStep for consistency)
-        const globalStepNow = timeToGlobalStep(now);
+        // Use noteStartTime (which may be recStartTime if note was early) for duration calc
+        const globalStepNow = timeToGlobalStep(noteStartTime);
         pendingNotes[mappedNote] = { 
           startGlobalStep: globalStepNow, 
           localStart,
-          actualStartTime: now  // Store actual time for precise duration
+          actualStartTime: noteStartTime  // Use adjusted start time (carried over to 1.1 if early)
         };
       }
 
