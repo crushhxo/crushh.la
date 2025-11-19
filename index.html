@@ -1184,52 +1184,78 @@
         const t0 = Math.max(startTime, ctx.currentTime);
         const now = ctx.currentTime;
 
+        // Use exact duration - no quantization or rounding
+        const total = Math.max(0.08, durationSeconds);
+
         // Always use portamento - glide from last frequency (or current if voice is active)
         let startFreq = freq;
-        if (sequencerVoice && sequencerVoice.osc && sequencerVoice.noteEndTime > now) {
-          // Voice is still active, use its current frequency
-          startFreq = sequencerVoice.osc.frequency.value;
+        let voiceIsActive = false;
+        
+        if (sequencerVoice && sequencerVoice.osc) {
+          // Check if voice is actually still playing (not just scheduled to end)
+          try {
+            const oscState = sequencerVoice.osc.playbackState || 
+                           (sequencerVoice.osc._started && sequencerVoice.noteEndTime > now);
+            if (sequencerVoice.noteEndTime > now) {
+              voiceIsActive = true;
+              startFreq = sequencerVoice.osc.frequency.value;
+            } else if (lastSequencerFreq !== null) {
+              startFreq = lastSequencerFreq;
+            }
+          } catch (e) {
+            // Oscillator might be stopped, use last frequency
+            if (lastSequencerFreq !== null) {
+              startFreq = lastSequencerFreq;
+            }
+          }
         } else if (lastSequencerFreq !== null) {
           // Voice ended, but we have the last frequency - always glide from it
           startFreq = lastSequencerFreq;
         }
 
         // If there's a currently playing sequencer voice and it's still active, reuse it
-        if (sequencerVoice && sequencerVoice.osc && sequencerVoice.noteEndTime > now) {
+        if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
-          // Cancel any scheduled frequency changes
-          osc.frequency.cancelScheduledValues(now);
-          osc.frequency.setValueAtTime(startFreq, now);
+          // Get current frequency and gain values smoothly
+          const currentFreq = osc.frequency.value;
+          const currentGain = gain.gain.value;
           
-          // Smooth glide to new frequency with exponential curve for fluid feel
+          // Cancel any scheduled changes
+          osc.frequency.cancelScheduledValues(now);
+          gain.gain.cancelScheduledValues(now);
+          
+          // Set current values to prevent clicks
+          osc.frequency.setValueAtTime(currentFreq, now);
+          gain.gain.setValueAtTime(currentGain, now);
+          
+          // Smooth glide to new frequency
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
           sequencerVoice.currentFreq = freq;
-          sequencerVoice.noteEndTime = t0 + durationSeconds;
+          sequencerVoice.noteEndTime = t0 + total;
           lastSequencerFreq = freq;
           
-          // Update gain envelope for the new note duration
-          gain.gain.cancelScheduledValues(now);
-          const currentGain = gain.gain.value;
-          gain.gain.setValueAtTime(currentGain, now);
-          
+          // Smooth envelope transition - maintain current level if in sustain, otherwise continue naturally
           const attack = 0.02;
           const decay = 0.06;
           const sustainLevel = 0.22;
-          const total = Math.max(0.08, durationSeconds);
           const release = 0.08;
           
-          // Maintain sustain level, then release at the end of the new note
-          if (currentGain > 0.05) {
-            // Already playing, maintain sustain level
-            gain.gain.setValueAtTime(sustainLevel, now);
+          // If we're in sustain range, smoothly maintain it
+          if (currentGain >= sustainLevel * 0.8) {
+            // Already in sustain, maintain smoothly
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
+            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            gain.gain.linearRampToValueAtTime(0, t0 + total);
+          } else if (currentGain > 0.05) {
+            // In decay or transition, continue to sustain smoothly
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.02);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
-            // Voice was fading, restart envelope
-            gain.gain.setValueAtTime(0, now);
+            // Voice was fading, restart envelope smoothly
             gain.gain.linearRampToValueAtTime(0.23, now + attack);
             gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
@@ -1262,7 +1288,6 @@
         const attack = 0.02;
         const decay = 0.06;
         const sustainLevel = 0.22;
-        const total = Math.max(0.08, durationSeconds);
         const release = 0.08;
         const sustainTime = Math.max(0, total - (attack + decay + release));
 
