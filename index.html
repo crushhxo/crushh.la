@@ -1378,21 +1378,35 @@
         if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const now = ctx.currentTime;
-        // Allow small tolerance (5ms) to capture notes played exactly at recStartTime
-        if (now < recStartTime - 0.005 || now > recEndTime) return;
+        // Allow larger tolerance (20ms) to capture notes played exactly at recStartTime
+        // This accounts for timing precision issues and ensures beat 1.1 is captured
+        if (now < recStartTime - 0.02 || now > recEndTime) return;
 
         // monophonic: close any pending notes first
         Object.keys(pendingNotes).forEach(existing => {
           recordNoteOff(existing);
         });
 
-        // Quantize START position to nearest 16th step, but keep actual start time
-        const globalStepNow = timeToGlobalStep(now);
-        let localStart = globalStepNow - recStartGlobalStep;
-        if (localStart < 0) localStart = 0;
+        // Calculate time relative to recStartTime for more accurate step calculation
+        const elapsedFromRecStart = now - recStartTime;
+        const stepFloat = elapsedFromRecStart / STEP_DUR;
+        // Round to nearest step, but ensure step 0 is captured for notes at or very close to recStartTime
+        let localStart = Math.round(stepFloat);
+        
+        // Clamp to valid range, but be generous for step 0 (beat 1.1)
+        if (localStart < 0) {
+          // If note is very close to recStartTime (within half a step), map it to step 0
+          if (elapsedFromRecStart >= -STEP_DUR / 2) {
+            localStart = 0;
+          } else {
+            return; // Too early, ignore
+          }
+        }
         if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
         // Store quantized start step AND actual start time for precise duration calculation
+        // Calculate globalStepNow for reference (using timeToGlobalStep for consistency)
+        const globalStepNow = timeToGlobalStep(now);
         pendingNotes[mappedNote] = { 
           startGlobalStep: globalStepNow, 
           localStart,
