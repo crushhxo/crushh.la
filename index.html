@@ -1203,14 +1203,13 @@
         }
       }
 
-      // --- SYNTH SEQUENCER (simple 64-step, 4-bar looper) ---
-      // Each step can have notes with exact timings: {note, startOffset, duration}
-      // startOffset is relative to the step start (0 to STEP_DUR)
-      let synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // 64 steps, each is an array of notes
+      // --- SYNTH SEQUENCER (64-step mono pattern) ---
+      let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSeconds} - start quantized to 16ths, duration preserved
       let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
       let recStartTime = null;
       let recEndTime = null;
-      let pendingNotes = {}; // mappedNote -> { actualStartTime, stepIndex }
+      let recStartGlobalStep = 0;
+      let pendingNotes = {}; // mappedNote -> { startGlobalStep }
       let currentRecordedNote = null;
       
       // Sequencer voice for portamento (separate from live voice)
@@ -1220,14 +1219,14 @@
       function scheduleSynthForStep(globalStep, when) {
         if (recState !== "playing") return;
         const localStep = globalStep % TOTAL_STEPS;
-        const stepNotes = synthPattern[localStep];
-        if (!stepNotes || stepNotes.length === 0) return;
-        
-        // Schedule all notes in this step at their exact recorded times
-        stepNotes.forEach(noteData => {
-          const noteStartTime = when + noteData.startOffset;
-          triggerSeqNote(noteData.note, noteData.duration, noteStartTime);
-        });
+        const evt = synthPattern[localStep];
+        if (!evt) return;
+
+        // Use precise duration if available, otherwise fall back to step-based (for backwards compatibility)
+        const duration = evt.lengthSeconds !== undefined 
+          ? evt.lengthSeconds 
+          : (evt.lengthSteps * STEP_DUR);
+        triggerSeqNote(evt.note, duration, when);
       }
 
       function triggerSeqNote(noteName, durationSeconds, startTime) {
@@ -1240,82 +1239,52 @@
         const t0 = Math.max(startTime, ctx.currentTime);
         const now = ctx.currentTime;
 
-        // Use exact duration - no quantization, rounding, or minimum duration enforcement
-        // Preserve the exact duration as recorded, even if very short
-        const total = Math.max(0.01, durationSeconds); // Very small minimum to prevent errors, but preserve short notes
+        // Use exact duration - no quantization or rounding
+        const total = Math.max(0.08, durationSeconds);
 
-        // Portamento only applies when notes overlap (legato) - like Serum2
-        // Check if previous note is still playing to determine if we should glide
+        // Always use portamento - glide from last frequency (or current if voice is active)
         let startFreq = freq;
         let voiceIsActive = false;
-        let shouldGlide = false;
         
         if (sequencerVoice && sequencerVoice.osc) {
-          // Check if previous note is still playing (overlapping/legato)
-          // For Serum2-style portamento: if the previous note hasn't ended yet, it's legato
-          // Use a small negative threshold to catch notes that are just ending (for smooth transitions)
-          const overlapThreshold = -0.005; // -5ms: allow slight overlap for smooth glides
-          
-          if (sequencerVoice.noteEndTime > (t0 + overlapThreshold)) {
-            // Previous note is still active - this is legato/overlapping, apply portamento
-            voiceIsActive = true;
-            shouldGlide = true;
-            try {
-              // Get the current frequency from the active oscillator for smooth glide
+          // Check if voice is actually still playing (not just scheduled to end)
+          try {
+            const oscState = sequencerVoice.osc.playbackState || 
+                           (sequencerVoice.osc._started && sequencerVoice.noteEndTime > now);
+            if (sequencerVoice.noteEndTime > now) {
+              voiceIsActive = true;
               startFreq = sequencerVoice.osc.frequency.value;
-            } catch (e) {
-              // Fallback if we can't get frequency - use last known frequency
-              if (lastSequencerFreq !== null) {
-                startFreq = lastSequencerFreq;
-              } else {
-                startFreq = freq; // If all else fails, start at target
-              }
+            } else if (lastSequencerFreq !== null) {
+              startFreq = lastSequencerFreq;
             }
-          } else {
-            // Previous note has ended - this is staccato, no portamento
-            // Stop the previous note cleanly before starting new one
-            try {
-              const { osc, gain } = sequencerVoice;
-              const stopNow = ctx.currentTime;
-              
-              // Clean stop for staccato - no overlap
-              gain.gain.cancelScheduledValues(stopNow);
-              gain.gain.setValueAtTime(0, stopNow);
-              osc.stop(stopNow + 0.001);
-            } catch (e) {
-              // Ignore errors
+          } catch (e) {
+            // Oscillator might be stopped, use last frequency
+            if (lastSequencerFreq !== null) {
+              startFreq = lastSequencerFreq;
             }
-            
-            // Clear voice for staccato - start fresh
-            sequencerVoice = null;
-            voiceIsActive = false;
-            shouldGlide = false;
-            startFreq = freq;
           }
-        } else {
-          // No previous note - start immediately at target frequency (no portamento)
-          shouldGlide = false;
-          startFreq = freq;
+        } else if (lastSequencerFreq !== null) {
+          // Voice ended, but we have the last frequency - always glide from it
+          startFreq = lastSequencerFreq;
         }
 
-        // If there's a currently playing sequencer voice and notes overlap (legato), reuse it with smooth portamento
-        if (voiceIsActive && shouldGlide && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
+        // If there's a currently playing sequencer voice and it's still active, reuse it
+        if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
-          // Get current frequency and gain values for smooth transition
+          // Get current frequency and gain values smoothly
           const currentFreq = osc.frequency.value;
           const currentGain = gain.gain.value;
           
-          // Cancel any scheduled changes to start fresh
+          // Cancel any scheduled changes
           osc.frequency.cancelScheduledValues(now);
           gain.gain.cancelScheduledValues(now);
           
-          // Set current values to prevent clicks/pops
+          // Set current values to prevent clicks
           osc.frequency.setValueAtTime(currentFreq, now);
           gain.gain.setValueAtTime(currentGain, now);
           
-          // Smooth continuous glide to new frequency (Serum2-style portamento)
-          // This creates the smooth glide effect when sliding down the piano
+          // Smooth glide to new frequency
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
@@ -1323,25 +1292,25 @@
           sequencerVoice.noteEndTime = t0 + total;
           lastSequencerFreq = freq;
           
-          // Smooth envelope transition - maintain sustain for continuous legato playing
+          // Smooth envelope transition - maintain current level if in sustain, otherwise continue naturally
           const attack = 0.02;
           const decay = 0.06;
           const sustainLevel = 0.22;
           const release = 0.08;
           
-          // Keep the envelope in sustain for smooth legato transitions
-          if (currentGain >= sustainLevel * 0.7) {
-            // Already in sustain range - maintain smoothly for continuous glide
-            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.005);
-            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
-            gain.gain.linearRampToValueAtTime(0, t0 + total);
-          } else if (currentGain > 0.03) {
-            // In decay or transition - smoothly bring to sustain for legato
+          // If we're in sustain range, smoothly maintain it
+          if (currentGain >= sustainLevel * 0.8) {
+            // Already in sustain, maintain smoothly
             gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
+          } else if (currentGain > 0.05) {
+            // In decay or transition, continue to sustain smoothly
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.02);
+            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
-            // Voice was very quiet - restart envelope smoothly
+            // Voice was fading, restart envelope smoothly
             gain.gain.linearRampToValueAtTime(0.23, now + attack);
             gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
@@ -1353,23 +1322,18 @@
           return;
         }
 
-        // No existing active voice, create new one
-        // For legato notes, we should have reused the voice above, so this is mostly for staccato
-        // But handle edge cases where we might need to glide from last frequency
+        // No existing active voice, create new one but always start from last frequency if available
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const distortion = ctx.createWaveShaper();
 
         osc.type = "sawtooth";
         
-        // Only glide if we have a valid start frequency that's different from target
-        // This handles edge cases for smooth transitions
-        if (shouldGlide && startFreq !== freq && startFreq > 0) {
-          // Legato/overlapping: glide from previous frequency for smooth transition
+        // Always start from last frequency and glide to new one for fluid transitions
+        if (startFreq !== freq) {
           osc.frequency.setValueAtTime(startFreq, t0);
           osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
         } else {
-          // Staccato or no previous note: start immediately at target frequency (no portamento)
           osc.frequency.setValueAtTime(freq, t0);
         }
 
@@ -1414,29 +1378,39 @@
         if (!ctx || recStartTime === null || recEndTime === null) return;
 
         const now = ctx.currentTime;
-        
-        // If note is played before 1.1, carry it over to start at 1.1
-        let noteStartTime = Math.max(now, recStartTime);
-        
-        // Don't record notes after recording end
-        if (noteStartTime >= recEndTime) return;
+        // Allow larger tolerance (20ms) to capture notes played exactly at recStartTime
+        // This accounts for timing precision issues and ensures beat 1.1 is captured
+        if (now < recStartTime - 0.02 || now > recEndTime) return;
 
         // monophonic: close any pending notes first
         Object.keys(pendingNotes).forEach(existing => {
           recordNoteOff(existing);
         });
 
-        // Calculate which step this note belongs to (0-63)
-        const elapsed = noteStartTime - recStartTime;
-        const stepIndex = Math.floor(elapsed / STEP_DUR);
+        // Calculate time relative to recStartTime for more accurate step calculation
+        const elapsedFromRecStart = now - recStartTime;
+        const stepFloat = elapsedFromRecStart / STEP_DUR;
+        // Round to nearest step, but ensure step 0 is captured for notes at or very close to recStartTime
+        let localStart = Math.round(stepFloat);
         
-        // Clamp to valid step range
-        if (stepIndex < 0 || stepIndex >= TOTAL_STEPS) return;
+        // Clamp to valid range, but be generous for step 0 (beat 1.1)
+        if (localStart < 0) {
+          // If note is very close to recStartTime (within half a step), map it to step 0
+          if (elapsedFromRecStart >= -STEP_DUR / 2) {
+            localStart = 0;
+          } else {
+            return; // Too early, ignore
+          }
+        }
+        if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
-        // Store the actual start time and step index
+        // Store quantized start step AND actual start time for precise duration calculation
+        // Calculate globalStepNow for reference (using timeToGlobalStep for consistency)
+        const globalStepNow = timeToGlobalStep(now);
         pendingNotes[mappedNote] = { 
-          actualStartTime: noteStartTime,
-          stepIndex: stepIndex
+          startGlobalStep: globalStepNow, 
+          localStart,
+          actualStartTime: now  // Store actual time for precise duration
         };
       }
 
@@ -1448,59 +1422,47 @@
         if (!data) return;
 
         const now = ctx.currentTime;
-        const stepIndex = data.stepIndex;
+        // Clamp note off time to not extend past recEndTime (bar 1.1 after 4 bars)
+        const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
         
-        // Calculate start offset within the step (0 to STEP_DUR)
-        const stepStartTime = recStartTime + (stepIndex * STEP_DUR);
-        const startOffset = data.actualStartTime - stepStartTime;
+        // Calculate actual duration in seconds (not quantized), but ensure it doesn't extend past loop boundary
+        const actualDuration = Math.max(0, clamped - data.actualStartTime);
         
-        // Calculate duration - exact as played
-        let duration = now - data.actualStartTime;
-        
-        // Clamp note end to recording end (next 1.1) for clean loop
-        if (now > recEndTime) {
-          duration = recEndTime - data.actualStartTime;
-        }
-        
-        // Ensure duration is positive
-        duration = Math.max(0, duration);
-        
-        // Only record if duration is positive and within valid step
-        if (duration > 0 && stepIndex >= 0 && stepIndex < TOTAL_STEPS && startOffset >= 0) {
-          // Store note with exact timing within the step
-          synthPattern[stepIndex].push({
-            note: mappedNote,
-            startOffset: startOffset,  // Offset within step (0 to STEP_DUR)
-            duration: duration         // Exact duration as played
-          });
+        // Only quantize the START position, preserve actual duration
+        if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+          // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+          const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+          const clampedDuration = Math.min(actualDuration, maxDuration);
+          
+          // Store duration as seconds (can be converted to steps when needed, but preserve precision)
+          synthPattern[data.localStart] = { 
+            note: mappedNote, 
+            lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+          };
         }
 
         delete pendingNotes[mappedNote];
       }
 
       function finalizeRecording() {
-        // Close any held notes at loop boundary - cut off exactly at recEndTime (next 1.1)
+        // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
         const ctx = getAudio();
-        if (ctx && recEndTime !== null && recStartTime !== null) {
+        if (ctx && recEndTime !== null) {
           Object.entries(pendingNotes).forEach(([note, data]) => {
-            const stepIndex = data.stepIndex;
+            // Calculate duration from actual start time to end of recording
+            // Ensure note is cut off exactly at recEndTime, not extending into next loop
+            const actualDuration = Math.max(0, recEndTime - data.actualStartTime);
             
-            // Calculate start offset within the step
-            const stepStartTime = recStartTime + (stepIndex * STEP_DUR);
-            const startOffset = data.actualStartTime - stepStartTime;
-            
-            // Calculate duration from actual start to recording end
-            let duration = recEndTime - data.actualStartTime;
-            duration = Math.max(0, duration);
-            
-            // Only record if duration is positive and within valid step
-            if (duration > 0 && stepIndex >= 0 && stepIndex < TOTAL_STEPS && startOffset >= 0) {
-              // Store note with exact timing within the step
-              synthPattern[stepIndex].push({
-                note: note,
-                startOffset: startOffset,  // Offset within step
-                duration: duration        // Exact duration, cut off at next 1.1
-              });
+            // Only record if duration is positive and within the loop bounds
+            if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+              // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+              const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+              const clampedDuration = Math.min(actualDuration, maxDuration);
+              
+              synthPattern[data.localStart] = { 
+                note, 
+                lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+              };
             }
           });
         }
@@ -1606,7 +1568,7 @@
 
           // reset pattern playback if already running
           stopTransport();
-          synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
+          synthPattern = new Array(TOTAL_STEPS).fill(null);
           recState = "idle";
           pendingNotes = {};
           currentRecordedNote = null;
@@ -1643,7 +1605,7 @@
           currentRecordedNote = null;
           recStartTime = null;
           recEndTime = null;
-          synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
+          synthPattern = new Array(TOTAL_STEPS).fill(null);
           if (recBtn) {
             recBtn.classList.remove("recording","looping");
             recBtn.textContent = "rec synth";
@@ -1676,7 +1638,7 @@
             if (ctx) {
               finalizeRecording();
             }
-            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
+            synthPattern = new Array(TOTAL_STEPS).fill(null);
             pendingNotes = {};
             currentRecordedNote = null;
             recStartTime = null;
@@ -1769,16 +1731,16 @@
               }, delay);
             }
 
-            // start recording exactly at 1.1, end at next 1.1 (4 bars)
+            // start recording exactly at 1.1
             recStartTime = transportStartTime;
-            recEndTime = recStartTime + LOOP_BEATS * BEAT_DUR; // End exactly at next 1.1
-            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // Clear pattern for new recording
+            recEndTime = recStartTime + LOOP_BEATS * BEAT_DUR;
+            recStartGlobalStep = timeToGlobalStep(recStartTime);
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
               if (recState !== "count-in") return;
               recState = "recording";
-              synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
+              synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
               // Start metronome for entire 4-bar recording
@@ -1832,13 +1794,13 @@
 
             recStartTime = recStart;
             recEndTime = recEnd;
-            synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []); // Clear pattern for new recording
+            recStartGlobalStep = recordStartBeatGlobal * 4; // 4 steps per beat
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
               if (recState !== "count-in") return;
               recState = "recording";
-              synthPattern = new Array(TOTAL_STEPS).fill(null).map(() => []);
+              synthPattern = new Array(TOTAL_STEPS).fill(null);
               pendingNotes = {};
               recBtn.textContent = "rec synth*";
               // Start metronome for entire 4-bar recording
