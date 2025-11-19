@@ -150,7 +150,38 @@
       margin-top: 6px; /* Reduced spacing to shift elements up */
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .scale-selectors {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .scale-selector {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease;
+      min-width: 50px;
+      text-align: center;
+    }
+
+    .scale-selector:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .scale-selector:focus {
+      outline: none;
+      border-color: rgba(0, 0, 0, 0.5);
     }
 
     .piano {
@@ -588,6 +619,26 @@
 
       <!-- synth piano -->
       <div class="synth">
+        <div class="scale-selectors">
+          <select class="scale-selector" id="scale-root">
+            <option value="C">C</option>
+            <option value="C#">C#</option>
+            <option value="D">D</option>
+            <option value="D#">D#</option>
+            <option value="E">E</option>
+            <option value="F">F</option>
+            <option value="F#">F#</option>
+            <option value="G">G</option>
+            <option value="G#">G#</option>
+            <option value="A" selected>A</option>
+            <option value="A#">A#</option>
+            <option value="B">B</option>
+          </select>
+          <select class="scale-selector" id="scale-mode">
+            <option value="major" selected>maj</option>
+            <option value="minor">min</option>
+          </select>
+        </div>
         <div class="piano">
           <div class="white-keys">
             <button class="key white" data-note="C1"></button>
@@ -942,7 +993,7 @@
         lastSequencerFreq = null;
       }
 
-      // --- SCALE: A major, note → freq map ---
+      // --- SCALE: Dynamic scale system ---
       const noteFreq = {
         C1: 32.70,
         "C#1": 34.65,
@@ -962,27 +1013,99 @@
       const keyboardOrder = [
         "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
       ];
-      const aMajorNotes = ["C#1","D1","E1","F#1","G#1","A1","B1"];
-      const aMajorSet = new Set(aMajorNotes);
-      const scaleMap = {};
-      keyboardOrder.forEach((note, idx) => {
-        if (aMajorSet.has(note)) {
-          scaleMap[note] = note;
-        } else {
-          let best = null;
-          let bestDist = Infinity;
-          aMajorNotes.forEach((n) => {
-            const j = keyboardOrder.indexOf(n);
-            if (j === -1) return;
-            const d = Math.abs(j - idx);
-            if (d < bestDist) {
-              bestDist = d;
-              best = n;
-            }
-          });
-          scaleMap[note] = best || note;
-        }
-      });
+
+      // Scale intervals: major and minor
+      const scaleIntervals = {
+        major: [0, 2, 4, 5, 7, 9, 11], // W-W-H-W-W-W-H (whole, whole, half, whole, whole, whole, half)
+        minor: [0, 2, 3, 5, 7, 8, 10]  // W-H-W-W-H-W-W (natural minor)
+      };
+
+      // Map root names to semitone offsets from C
+      const rootOffsets = {
+        "C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5,
+        "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11
+      };
+
+      // Current scale settings (default: A Major)
+      let currentScaleRoot = "A";
+      let currentScaleMode = "major";
+      let scaleMap = {};
+
+      // Function to generate scale notes based on root and mode
+      function generateScaleNotes(root, mode) {
+        const rootOffset = rootOffsets[root];
+        const intervals = scaleIntervals[mode];
+        const scaleNotes = [];
+        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        
+        // Generate scale degrees (semitone values relative to root, modulo 12)
+        const scaleSemitones = intervals.map(interval => (rootOffset + interval) % 12);
+        
+        // Find all notes in keyboardOrder that match any scale degree
+        keyboardOrder.forEach(note => {
+          // Extract note name and octave
+          const noteMatch = note.match(/^([A-G]#?)(\d)$/);
+          if (!noteMatch) return;
+          
+          const noteName = noteMatch[1];
+          const semitone = rootOffsets[noteName];
+          
+          // Check if this note's semitone value matches any scale degree
+          if (scaleSemitones.includes(semitone)) {
+            scaleNotes.push(note);
+          }
+        });
+        
+        return scaleNotes;
+      }
+
+      // Function to update scaleMap based on current root and mode
+      function updateScaleMap() {
+        const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
+        const scaleSet = new Set(scaleNotes);
+        scaleMap = {};
+        
+        keyboardOrder.forEach((note, idx) => {
+          if (scaleSet.has(note)) {
+            scaleMap[note] = note;
+          } else {
+            // Find nearest scale note
+            let best = null;
+            let bestDist = Infinity;
+            scaleNotes.forEach((n) => {
+              const j = keyboardOrder.indexOf(n);
+              if (j === -1) return;
+              const d = Math.abs(j - idx);
+              if (d < bestDist) {
+                bestDist = d;
+                best = n;
+              }
+            });
+            scaleMap[note] = best || note;
+          }
+        });
+      }
+
+      // Initialize with A Major (current default)
+      updateScaleMap();
+
+      // Add event listeners for scale selectors
+      const scaleRootSelect = document.getElementById("scale-root");
+      const scaleModeSelect = document.getElementById("scale-mode");
+      
+      if (scaleRootSelect) {
+        scaleRootSelect.addEventListener("change", (e) => {
+          currentScaleRoot = e.target.value;
+          updateScaleMap();
+        });
+      }
+      
+      if (scaleModeSelect) {
+        scaleModeSelect.addEventListener("change", (e) => {
+          currentScaleMode = e.target.value;
+          updateScaleMap();
+        });
+      }
 
       function createDistortionCurve(amount) {
         const k = typeof amount === "number" ? amount : 1;
