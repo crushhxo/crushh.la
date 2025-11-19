@@ -188,6 +188,43 @@
       border-color: rgba(0, 0, 0, 0.5);
     }
 
+    .octave-controls {
+      position: absolute;
+      left: calc(50% + 130px + 8px); /* Position to the right of centered piano (piano is 260px wide, centered at 50%, so right edge is at 50% + 130px, then add small gap) */
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .octave-button {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease;
+      min-width: 50px;
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .octave-button:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .octave-button:active {
+      transform: translateY(1px);
+    }
+
+    .octave-button:focus {
+      outline: none;
+      border-color: rgba(0, 0, 0, 0.5);
+    }
+
     .piano {
       position: relative;
       width: 260px;
@@ -642,6 +679,10 @@
             <option value="major" selected>maj</option>
             <option value="minor">min</option>
           </select>
+        </div>
+        <div class="octave-controls">
+          <button class="octave-button" id="octave-up">↑</button>
+          <button class="octave-button" id="octave-down">↓</button>
         </div>
         <div class="piano">
           <div class="white-keys">
@@ -1111,6 +1152,22 @@
         });
       }
 
+      // Octave control buttons
+      const octaveUpBtn = document.getElementById("octave-up");
+      const octaveDownBtn = document.getElementById("octave-down");
+      
+      if (octaveUpBtn) {
+        octaveUpBtn.addEventListener("click", () => {
+          octaveOffset = Math.min(octaveOffset + 1, 2); // Limit to +2 octaves
+        });
+      }
+      
+      if (octaveDownBtn) {
+        octaveDownBtn.addEventListener("click", () => {
+          octaveOffset = Math.max(octaveOffset - 1, -2); // Limit to -2 octaves
+        });
+      }
+
       function createDistortionCurve(amount) {
         const k = typeof amount === "number" ? amount : 1;
         const n = 44100;
@@ -1205,11 +1262,17 @@
       // --- LIVE SYNTH VOICE (monophonic) ---
       let currentVoice = null;
       const glideTime = 0.08; // Portamento time for overlapping/legato notes only
+      let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
 
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
-        const freq = noteFreq[mapped];
+        let freq = noteFreq[mapped];
         if (!freq) return;
+        
+        // Apply octave offset (multiply by 2 for each octave up, divide for each octave down)
+        if (octaveOffset !== 0) {
+          freq = freq * Math.pow(2, octaveOffset);
+        }
 
         const ctx = getAudio();
         if (!ctx) return;
@@ -1382,8 +1445,13 @@
 
       function triggerSeqNote(noteName, durationSeconds, startTime) {
         const mapped = scaleMap[noteName] || noteName;
-        const freq = noteFreq[mapped];
+        let freq = noteFreq[mapped];
         if (!freq) return;
+        
+        // Apply octave offset (multiply by 2 for each octave up, divide for each octave down)
+        if (octaveOffset !== 0) {
+          freq = freq * Math.pow(2, octaveOffset);
+        }
         const ctx = getAudio();
         if (!ctx) return;
 
