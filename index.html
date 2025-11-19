@@ -997,6 +997,29 @@
         return curve;
       }
 
+      function playMetronomeClick(when, volume = 0.2) {
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Create a short click sound using a brief sine wave burst
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1000, when); // 1kHz click
+        
+        gain.gain.setValueAtTime(0, when);
+        gain.gain.linearRampToValueAtTime(volume, when + 0.001);
+        gain.gain.exponentialRampToValueAtTime(0.001, when + 0.01);
+        gain.gain.setValueAtTime(0, when + 0.02);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start(when);
+        osc.stop(when + 0.02);
+      }
+
       // --- LIVE SYNTH VOICE (monophonic) ---
       let currentVoice = null;
       const glideTime = 0.15; // Increased for smoother, more fluid transitions
@@ -1352,17 +1375,22 @@
         if (!data) return;
 
         const now = ctx.currentTime;
+        // Clamp note off time to not extend past recEndTime (bar 1.1 after 4 bars)
         const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
         
-        // Calculate actual duration in seconds (not quantized)
+        // Calculate actual duration in seconds (not quantized), but ensure it doesn't extend past loop boundary
         const actualDuration = Math.max(0, clamped - data.actualStartTime);
         
         // Only quantize the START position, preserve actual duration
         if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+          // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+          const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+          const clampedDuration = Math.min(actualDuration, maxDuration);
+          
           // Store duration as seconds (can be converted to steps when needed, but preserve precision)
           synthPattern[data.localStart] = { 
             note: mappedNote, 
-            lengthSeconds: actualDuration  // Store precise duration, not quantized steps
+            lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
           };
         }
 
@@ -1370,16 +1398,23 @@
       }
 
       function finalizeRecording() {
-        // close any held notes at loop boundary
+        // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
         const ctx = getAudio();
         if (ctx && recEndTime !== null) {
           Object.entries(pendingNotes).forEach(([note, data]) => {
             // Calculate duration from actual start time to end of recording
+            // Ensure note is cut off exactly at recEndTime, not extending into next loop
             const actualDuration = Math.max(0, recEndTime - data.actualStartTime);
+            
+            // Only record if duration is positive and within the loop bounds
             if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+              // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+              const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+              const clampedDuration = Math.min(actualDuration, maxDuration);
+              
               synthPattern[data.localStart] = { 
                 note, 
-                lengthSeconds: actualDuration  // Store precise duration
+                lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
               };
             }
           });
@@ -1626,7 +1661,7 @@
             if (playBtn) playBtn.classList.add("active");
             if (stopBtn) stopBtn.classList.remove("active");
             
-            // count-in display 4,3,2,1
+            // count-in display 4,3,2,1 with metronome clicks
             recState = "count-in";
             recBtn.classList.add("recording");
             recBtn.classList.remove("looping");
@@ -1636,6 +1671,10 @@
               const displayNum = 4 - i;
               const t = countInStart + i * BEAT_DUR;
               const delay = Math.max(0, (t - now) * 1000);
+              
+              // Play metronome click at 20% volume
+              playMetronomeClick(t, 0.2);
+              
               setTimeout(() => {
                 if (recState === "count-in") {
                   recBtn.textContent = displayNum.toString();
@@ -1678,7 +1717,7 @@
             const recStart = transportStartTime + recordStartBeatGlobal * BEAT_DUR;
             const recEnd = recStart + LOOP_BEATS * BEAT_DUR;
 
-            // count-in over last 4 beats of current loop (4,3,2,1)
+            // count-in over last 4 beats of current loop (4,3,2,1) with metronome clicks
             recState = "count-in";
             recBtn.classList.add("recording");
             recBtn.classList.remove("looping");
@@ -1689,6 +1728,10 @@
               const t = transportStartTime + beatIndex * BEAT_DUR;
               const displayNum = 4 - i;
               const delay = Math.max(0, (t - now) * 1000);
+              
+              // Play metronome click at 20% volume
+              playMetronomeClick(t, 0.2);
+              
               setTimeout(() => {
                 if (recState === "count-in") {
                   recBtn.textContent = displayNum.toString();
