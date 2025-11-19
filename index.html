@@ -1599,12 +1599,14 @@
         const now = ctx.currentTime;
         
         // If note is played slightly before 1.1, carry it over to start at 1.1
-        // Allow generous tolerance (up to half a step before) to capture early notes
+        // Allow very generous tolerance (up to 75% of a step before) to capture early notes
+        // This ensures notes played slightly early are always captured at beat 1.1
         let noteStartTime = now;
         if (now < recStartTime) {
           // Note played before recording start - carry it over to start at 1.1
-          // Only if it's within a reasonable window (half a step = ~58ms at 130 BPM)
-          if (now >= recStartTime - STEP_DUR / 2) {
+          // Use 75% of a step (~87ms at 130 BPM) for maximum tolerance
+          const earlyTolerance = STEP_DUR * 0.75;
+          if (now >= recStartTime - earlyTolerance) {
             noteStartTime = recStartTime;
           } else {
             return; // Too early, ignore
@@ -1623,12 +1625,23 @@
         // Since we carried over early notes to recStartTime, elapsed will be 0 or positive
         const elapsedFromRecStart = noteStartTime - recStartTime;
         
-        // Softer quantization: Use 8th note grid instead of 16th note grid
-        // This gives half the quantization resolution, making it less aggressive
-        const eighthStepFloat = elapsedFromRecStart / (STEP_DUR * 2);
-        let localStart = Math.round(eighthStepFloat) * 2; // Snap to 8th notes, then convert to 16th step index
+        // FOOLPROOF BEAT 1.1 CAPTURE: Use a very generous window for step 0 (beat 1.1)
+        // If note is within 75% of a step from recStartTime, force it to step 0
+        // This ensures beat 1.1 is ALWAYS captured, even with timing variations
+        const step0Threshold = STEP_DUR * 0.75; // ~87ms at 130 BPM - very generous window
         
-        // Clamp to valid range
+        let localStart;
+        if (elapsedFromRecStart <= step0Threshold) {
+          // Force to step 0 (beat 1.1) for any note near the start
+          localStart = 0;
+        } else {
+          // Softer quantization: Use 8th note grid instead of 16th note grid
+          // This gives half the quantization resolution, making it less aggressive
+          const eighthStepFloat = elapsedFromRecStart / (STEP_DUR * 2);
+          localStart = Math.round(eighthStepFloat) * 2; // Snap to 8th notes, then convert to 16th step index
+        }
+        
+        // Clamp to valid range (shouldn't be needed with the logic above, but safety check)
         if (localStart < 0) localStart = 0;
         if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
 
