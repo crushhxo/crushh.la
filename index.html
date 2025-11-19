@@ -148,13 +148,15 @@
     /* synth piano layout */
     .synth {
       margin-top: 6px; /* Reduced spacing to shift elements up */
+      position: relative;
       display: flex;
       justify-content: center;
-      align-items: flex-start;
-      gap: 12px;
+      align-items: center;
     }
 
     .scale-selectors {
+      position: absolute;
+      left: calc(50% - 130px - 60px); /* Position to the left of centered piano (piano is 260px wide, centered at 50%, so left edge is at 50% - 130px, then subtract selector width + small gap) */
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -1550,9 +1552,11 @@
         // Calculate time relative to recStartTime for step calculation
         // Since we carried over early notes to recStartTime, elapsed will be 0 or positive
         const elapsedFromRecStart = noteStartTime - recStartTime;
-        const stepFloat = elapsedFromRecStart / STEP_DUR;
-        // Round to nearest step
-        let localStart = Math.round(stepFloat);
+        
+        // Softer quantization: Use 8th note grid instead of 16th note grid
+        // This gives half the quantization resolution, making it less aggressive
+        const eighthStepFloat = elapsedFromRecStart / (STEP_DUR * 2);
+        let localStart = Math.round(eighthStepFloat) * 2; // Snap to 8th notes, then convert to 16th step index
         
         // Clamp to valid range
         if (localStart < 0) localStart = 0;
