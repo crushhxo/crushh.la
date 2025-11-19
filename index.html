@@ -1387,10 +1387,12 @@
           recordNoteOff(existing);
         });
 
-        // Calculate time relative to recStartTime for more accurate step calculation
+        // Calculate time relative to recStartTime for step calculation
         const elapsedFromRecStart = now - recStartTime;
         const stepFloat = elapsedFromRecStart / STEP_DUR;
-        // Round to nearest step, but ensure step 0 is captured for notes at or very close to recStartTime
+        
+        // Quantize START position to nearest 16th note step (snap to grid)
+        // This is the ONLY quantization - duration will be preserved exactly
         let localStart = Math.round(stepFloat);
         
         // Clamp to valid range, but be generous for step 0 (beat 1.1)
@@ -1422,22 +1424,24 @@
         if (!data) return;
 
         const now = ctx.currentTime;
-        // Clamp note off time to not extend past recEndTime (bar 1.1 after 4 bars)
-        const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
+        // Clamp note off time to not extend past recEndTime
+        const clampedEndTime = Math.max(recStartTime, Math.min(now, recEndTime));
         
-        // Calculate actual duration in seconds (not quantized), but ensure it doesn't extend past loop boundary
-        const actualDuration = Math.max(0, clamped - data.actualStartTime);
+        // Calculate duration from the ACTUAL note press/release times (NOT quantized)
+        // This preserves the exact length the user played, regardless of start position quantization
+        // The start position is quantized to snap to the grid, but the duration is preserved exactly
+        const actualDuration = Math.max(0, clampedEndTime - data.actualStartTime);
         
-        // Only quantize the START position, preserve actual duration
+        // Only record if duration is positive and within bounds
         if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
-          // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+          // Ensure duration doesn't extend past the loop boundary
           const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
           const clampedDuration = Math.min(actualDuration, maxDuration);
           
-          // Store duration as seconds (can be converted to steps when needed, but preserve precision)
+          // Store the exact duration as played (in seconds), not quantized
           synthPattern[data.localStart] = { 
             note: mappedNote, 
-            lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+            lengthSeconds: clampedDuration  // Exact duration as played, only clamped to loop boundary
           };
         }
 
@@ -1445,23 +1449,24 @@
       }
 
       function finalizeRecording() {
-        // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
+        // close any held notes at loop boundary - cut off exactly at recEndTime
         const ctx = getAudio();
         if (ctx && recEndTime !== null) {
           Object.entries(pendingNotes).forEach(([note, data]) => {
-            // Calculate duration from actual start time to end of recording
-            // Ensure note is cut off exactly at recEndTime, not extending into next loop
+            // Calculate duration from ACTUAL start time to end of recording
+            // This preserves the exact length the user held the note
             const actualDuration = Math.max(0, recEndTime - data.actualStartTime);
             
             // Only record if duration is positive and within the loop bounds
             if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
-              // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+              // Ensure duration doesn't extend past the loop boundary
               const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
               const clampedDuration = Math.min(actualDuration, maxDuration);
               
+              // Store the exact duration as held (in seconds), not quantized
               synthPattern[data.localStart] = { 
                 note, 
-                lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+                lengthSeconds: clampedDuration  // Exact duration as held, only clamped to loop boundary
               };
             }
           });
