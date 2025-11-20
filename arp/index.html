@@ -2023,22 +2023,8 @@
         // Check the appropriate recording state based on current mode
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
         
-        // Allow recording during count-in and recording states
-        // This captures notes held before recording starts
-        if (currentRecState !== "recording" && currentRecState !== "count-in") {
-          // If we're in count-in or about to record, store the note to be recorded when recording starts
-          if (currentRecState === "count-in") {
-            const ctx = getAudio();
-            if (ctx) {
-              preRecordingNotes[mappedNote] = { pressTime: ctx.currentTime };
-            }
-          }
-          return;
-        }
-        
         const ctx = getAudio();
         if (!ctx) return;
-
         const now = ctx.currentTime;
         
         if (currentMode === "arp") {
@@ -2049,9 +2035,15 @@
           return;
         }
         
-        // If recStartTime is not set yet (during count-in), store the note
-        if (recStartTime === null || recEndTime === null) {
+        // If we're in count-in or recStartTime is not set yet, store the note to be captured when recording starts
+        // This captures notes held BEFORE recording actually starts
+        if (currentRecState === "count-in" || recStartTime === null || recEndTime === null) {
           preRecordingNotes[mappedNote] = { pressTime: now };
+          return;
+        }
+        
+        // If not in recording state, don't record
+        if (currentRecState !== "recording") {
           return;
         }
         
@@ -2111,9 +2103,13 @@
         // Check the appropriate recording state based on current mode
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
         
-        // Clear pre-recording notes if key is released before recording starts
-        if (currentRecState === "count-in" || recStartTime === null) {
-          if (preRecordingNotes[mappedNote]) delete preRecordingNotes[mappedNote];
+        // If key is released during count-in (before recording starts), remove from preRecordingNotes
+        // We only want to capture notes that are still held when recording actually starts
+        if (currentRecState === "count-in" || (recStartTime === null && currentRecState !== "recording")) {
+          if (preRecordingNotes[mappedNote]) {
+            delete preRecordingNotes[mappedNote];
+          }
+          return;
         }
         
         if (currentRecState !== "recording") return;
@@ -2561,15 +2557,18 @@
               
               // Capture any notes held before recording started
               // These should be recorded at step 0 (beat 1.1)
+              // Only capture notes that are still in preRecordingNotes (user is still holding them)
               if (currentMode === "bass" && Object.keys(preRecordingNotes).length > 0) {
                 const ctx = getAudio();
                 if (ctx && recStartTime !== null && recEndTime !== null) {
                   Object.keys(preRecordingNotes).forEach(mappedNote => {
                     // Record the note at step 0 (beat 1.1)
+                    // actualStartTime is recStartTime so duration is calculated from when recording starts
+                    // This ensures the note doesn't bleed into the next loop
                     pendingNotes[mappedNote] = {
                       startGlobalStep: 0,
                       localStart: 0,
-                      actualStartTime: recStartTime // Start exactly at 1.1
+                      actualStartTime: recStartTime // Start exactly at 1.1, not when key was pressed
                     };
                   });
                 }
@@ -2668,15 +2667,18 @@
               
               // Capture any notes held before recording started
               // These should be recorded at step 0 (beat 1.1)
+              // Only capture notes that are still in preRecordingNotes (user is still holding them)
               if (currentMode === "bass" && Object.keys(preRecordingNotes).length > 0) {
                 const ctx = getAudio();
                 if (ctx && recStartTime !== null && recEndTime !== null) {
                   Object.keys(preRecordingNotes).forEach(mappedNote => {
                     // Record the note at step 0 (beat 1.1)
+                    // actualStartTime is recStartTime so duration is calculated from when recording starts
+                    // This ensures the note doesn't bleed into the next loop
                     pendingNotes[mappedNote] = {
                       startGlobalStep: 0,
                       localStart: 0,
-                      actualStartTime: recStartTime // Start exactly at 1.1
+                      actualStartTime: recStartTime // Start exactly at 1.1, not when key was pressed
                     };
                   });
                 }
@@ -2766,7 +2768,9 @@
         if (!pointerDown) return;
         pointerDown = false;
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
-        if (currentRecState === "recording" && currentRecordedNote) {
+        // Call recordNoteOff for both recording and count-in states
+        // This handles notes held before recording starts
+        if ((currentRecState === "recording" || currentRecState === "count-in") && currentRecordedNote) {
           recordNoteOff(currentRecordedNote);
         }
         currentRecordedNote = null;
@@ -2857,7 +2861,9 @@
         activeTouchId = null;
         pointerDown = false;
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
-        if (currentRecState === "recording" && currentRecordedNote) {
+        // Call recordNoteOff for both recording and count-in states
+        // This handles notes held before recording starts
+        if ((currentRecState === "recording" || currentRecState === "count-in") && currentRecordedNote) {
           recordNoteOff(currentRecordedNote);
         }
         currentRecordedNote = null;
