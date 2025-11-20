@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>crushh.la - Arp</title>
+  <title>crushh.la</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body {
@@ -232,7 +232,6 @@
       gap: 8px;
       margin: 8px 0;
     }
-
     .mode-selector {
       font-size: 10px;
       padding: 4px 8px;
@@ -247,20 +246,16 @@
       text-align: center;
       font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
     }
-
     .mode-selector:hover {
       background: rgba(0, 0, 0, 0.08);
     }
-
     .mode-selector:focus {
       outline: none;
       border-color: rgba(0, 0, 0, 0.5);
     }
-
     .arp-mode-selector {
       display: none;
     }
-
     .mode-selectors.show-arp .arp-mode-selector {
       display: block;
     }
@@ -745,7 +740,6 @@
         </div>
       </div>
 
-      <!-- Mode selector (bass/arp) -->
       <div class="mode-selectors" id="mode-selectors">
         <select class="mode-selector" id="synth-mode">
           <option value="bass">bass</option>
@@ -862,12 +856,22 @@
     function initAudioCtx() {
       if (!audioCtx) {
         const Ctor = window.AudioContext || window.webkitAudioContext;
-        if (!Ctor) return;
-        audioCtx = new Ctor();
+        if (!Ctor) {
+          audioCtx = null;
+          return;
+        }
+        try {
+          audioCtx = new Ctor();
+        } catch (e) {
+          console.warn("Failed to create AudioContext:", e);
+          audioCtx = null;
+        }
       }
     }
 
     function unlockIOSAudio() {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return;
       initAudioCtx();
       if (!audioCtx || iosAudioUnlocked) return;
       iosAudioUnlocked = true;
@@ -981,9 +985,9 @@
 
     // Synth, drums, transport + sequencer
     document.addEventListener("DOMContentLoaded", () => {
-      if (!window.AudioContext && !window.webkitAudioContext) {
-        console.warn("Web Audio API not supported in this browser.");
-        return;
+      const hasAudioSupport = !!(window.AudioContext || window.webkitAudioContext);
+      if (!hasAudioSupport) {
+        console.warn("Web Audio API not supported in this browser. UI will work but audio will be disabled.");
       }
 
       // --- GLOBAL TRANSPORT ---
@@ -996,6 +1000,12 @@
       const TOTAL_STEPS = STEPS_PER_BAR * BARS; // 64
       const STEP_DUR = BEAT_DUR / 4;   // 16th note
 
+      // --- MODE & ARP VARIABLES (declared early for use throughout) ---
+      let currentMode = "bass";
+      let currentArpMode = "up";
+      let arpPattern = new Array(TOTAL_STEPS).fill(null);
+      let savedArpPattern = null;
+
       let transportStartTime = null;
       let transportRunning = false;
       let stepTimer = null;
@@ -1004,6 +1014,8 @@
       let lastQuarterVisual = null;
 
       function getAudio() {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
         initAudioCtx();
         if (!audioCtx) return null;
         if (audioCtx.state !== "running") {
@@ -1220,7 +1232,6 @@
         });
       }
 
-      // --- MODE SWITCHING EVENT LISTENERS ---
       const synthModeSelect = document.getElementById("synth-mode");
       const arpModeSelect = document.getElementById("arp-mode");
       const modeSelectors = document.getElementById("mode-selectors");
@@ -1253,7 +1264,6 @@
         });
       }
 
-      // Initialize UI
       updateModeUI();
 
       function createDistortionCurve(amount) {
@@ -1355,16 +1365,12 @@
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
         
-        // Handle arp mode - play arp voice directly
         if (currentMode === "arp") {
           let freq = noteFreq[mapped];
           if (!freq) return;
-          
-          // Apply octave offset
           if (octaveOffset !== 0) {
             freq = freq * Math.pow(2, octaveOffset);
           }
-          
           const ctx = getAudio();
           if (!ctx) return;
           const now = ctx.currentTime;
@@ -1372,7 +1378,6 @@
           return;
         }
         
-        // Continue with bass synth
         let freq = noteFreq[mapped];
         if (!freq) return;
         
@@ -1476,7 +1481,7 @@
       };
 
       async function loadDrumBuffers(ctx) {
-        if (drumLoaded || drumLoading) return;
+        if (!ctx || drumLoaded || drumLoading) return;
         drumLoading = true;
         try {
           for (const part of drumParts) {
@@ -1523,18 +1528,9 @@
         }
       }
 
-      // --- MODE SWITCHING (bass/arp) ---
-      let currentMode = "bass"; // "bass" or "arp"
-      let currentArpMode = "up"; // "up" for now, can add more later
-
       // --- SYNTH SEQUENCER (64-step mono pattern) ---
       let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSeconds} - start quantized to 16ths, duration preserved
       let savedSynthPattern = null; // Saved pattern that persists after stop until new recording
-
-      // --- ARP SEQUENCER (64-step pattern) ---
-      let arpPattern = new Array(TOTAL_STEPS).fill(null); // each step: {rootNote, arpMode}
-      let savedArpPattern = null; // Saved arp pattern that persists after stop until new recording
-
       let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
       let recStartTime = null;
       let recEndTime = null;
@@ -1546,47 +1542,39 @@
       let sequencerVoice = null;
       let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
-      // --- ARP SYNTH ENGINE (Serum 2 patch recreation) ---
+      // ARP FUNCTIONS
       function createArpVoice(freq, startTime) {
         const ctx = getAudio();
         if (!ctx || !freq) return null;
         const now = ctx.currentTime;
         const t0 = Math.max(startTime, now);
-
         const osc = ctx.createOscillator();
         osc.type = "sawtooth";
         osc.frequency.setValueAtTime(freq, t0);
-
         const filter = ctx.createBiquadFilter();
         filter.type = "lowpass";
         filter.frequency.setValueAtTime(2000, t0);
         filter.Q.setValueAtTime(1, t0);
-
         const gain = ctx.createGain();
         const attack = 0.0005;
         const decay = 0.29;
         const sustain = 0;
         const release = 0.015;
         const totalDuration = attack + decay + release;
-
         gain.gain.setValueAtTime(0, t0);
         gain.gain.linearRampToValueAtTime(0.3, t0 + attack);
         gain.gain.linearRampToValueAtTime(sustain, t0 + attack + decay);
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
         gain.gain.linearRampToValueAtTime(0, t0 + totalDuration);
-
-        // Simple delay send (no feedback to avoid issues)
         const beatDuration = BEAT_DUR;
         const delayL = ctx.createDelay(1.0);
         const delayR = ctx.createDelay(1.0);
         const delayGainL = ctx.createGain();
         const delayGainR = ctx.createGain();
-        
         delayL.delayTime.setValueAtTime(beatDuration / 2, t0);
         delayR.delayTime.setValueAtTime(beatDuration / 4, t0);
         delayGainL.gain.setValueAtTime(0.3, t0);
         delayGainR.gain.setValueAtTime(0.3, t0);
-
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(ctx.destination);
@@ -1596,22 +1584,17 @@
         delayGainR.connect(delayR);
         delayL.connect(ctx.destination);
         delayR.connect(ctx.destination);
-
         osc.start(t0);
         osc.stop(t0 + totalDuration + 0.1);
-
         return { osc, gain, filter, stopTime: t0 + totalDuration };
       }
 
-      // --- ARPEGGIATOR LOGIC ---
       function generateArpNotes(rootNote, mode) {
         if (!rootNote) return [];
         const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
         if (scaleNotes.length === 0) return [];
-        
         const rootIndex = scaleNotes.findIndex(note => note === rootNote);
         if (rootIndex === -1) return [];
-        
         const notes = [];
         if (mode === "up") {
           for (let i = 0; i < 4; i++) {
@@ -1627,10 +1610,8 @@
         const localStep = globalStep % TOTAL_STEPS;
         const evt = arpPattern[localStep];
         if (!evt || !evt.rootNote) return;
-        
         const arpNotes = generateArpNotes(evt.rootNote, evt.arpMode || "up");
         if (arpNotes.length === 0) return;
-        
         const noteDuration = STEP_DUR / 4;
         arpNotes.forEach((note, index) => {
           const noteStartTime = when + (index * noteDuration);
@@ -1853,28 +1834,19 @@
 
         const now = ctx.currentTime;
         
-        // Handle arp recording
         if (currentMode === "arp") {
           const elapsedFromRecStart = Math.max(0, now - recStartTime);
           const stepFloat = elapsedFromRecStart / STEP_DUR;
           let localStart = Math.round(stepFloat);
-          
           const step0Threshold = STEP_DUR * 0.75;
           if (elapsedFromRecStart <= step0Threshold) {
             localStart = 0;
           }
-          
           localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
-          
-          arpPattern[localStart] = {
-            rootNote: mappedNote,
-            arpMode: currentArpMode
-          };
-          
+          arpPattern[localStart] = { rootNote: mappedNote, arpMode: currentArpMode };
           return;
         }
         
-        // Continue with bass synth recording
         // If note is played slightly before 1.1, carry it over to start at 1.1
         // Allow very generous tolerance (up to 75% of a step before) to capture early notes
         // This ensures notes played slightly early are always captured at beat 1.1
@@ -1934,15 +1906,10 @@
 
       function recordNoteOff(mappedNote) {
         if (recState !== "recording") return;
-        
-        // For arp mode, we don't track note offs - just clear pending notes
         if (currentMode === "arp") {
-          if (pendingNotes[mappedNote]) {
-            delete pendingNotes[mappedNote];
-          }
+          if (pendingNotes[mappedNote]) delete pendingNotes[mappedNote];
           return;
         }
-        
         const ctx = getAudio();
         if (!ctx || recStartTime === null || recEndTime === null) return;
         const data = pendingNotes[mappedNote];
@@ -1972,13 +1939,11 @@
       }
 
       function finalizeRecording() {
-        // For arp mode, we don't need to finalize - notes are recorded directly
         if (currentMode === "arp") {
           pendingNotes = {};
           currentRecordedNote = null;
           return;
         }
-        
         // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
         const ctx = getAudio();
         if (ctx && recEndTime !== null) {
@@ -2103,26 +2068,19 @@
           // reset pattern playback if already running
           stopTransport();
           
-          // Restore saved patterns if they exist
           if (savedSynthPattern) {
             synthPattern = savedSynthPattern.map(step => step ? {...step} : null);
             recState = "playing";
           } else {
             synthPattern = new Array(TOTAL_STEPS).fill(null);
-            if (!savedArpPattern) {
-              recState = "idle";
-            }
+            if (!savedArpPattern) recState = "idle";
           }
-          
           if (savedArpPattern) {
             arpPattern = savedArpPattern.map(step => step ? {...step} : null);
-            if (recState === "idle") {
-              recState = "playing";
-            }
+            if (recState === "idle") recState = "playing";
           } else {
             arpPattern = new Array(TOTAL_STEPS).fill(null);
           }
-          
           pendingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
@@ -2154,17 +2112,14 @@
           stopTransport();
           stopRecordingMetronome(); // Stop metronome when transport stops
           
-          // Save the current patterns before clearing
           const hasSynthPattern = synthPattern.some(step => step !== null);
           if (hasSynthPattern) {
             savedSynthPattern = synthPattern.map(step => step ? {...step} : null);
           }
-          
           const hasArpPattern = arpPattern.some(step => step !== null);
           if (hasArpPattern) {
             savedArpPattern = arpPattern.map(step => step ? {...step} : null);
           }
-          
           recState = "idle";
           pendingNotes = {};
           currentRecordedNote = null;
@@ -2204,7 +2159,6 @@
             if (ctx) {
               finalizeRecording();
             }
-            // Clear saved patterns when cancelling recording
             savedSynthPattern = null;
             savedArpPattern = null;
             synthPattern = new Array(TOTAL_STEPS).fill(null);
@@ -2216,7 +2170,6 @@
             return;
           }
           
-          // Clear saved patterns when starting a new recording
           savedSynthPattern = null;
           savedArpPattern = null;
           
@@ -2322,7 +2275,6 @@
               }
               pendingNotes = {};
               recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec synth*";
-              // Start metronome for entire 4-bar recording
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
@@ -2336,7 +2288,7 @@
                 finalizeRecording();
                 savedSynthPattern = synthPattern.map(step => step ? {...step} : null);
               }
-              stopRecordingMetronome(); // Stop metronome when recording ends
+              stopRecordingMetronome();
               recBtn.classList.remove("recording");
               recBtn.classList.add("looping");
               recBtn.textContent = "looping";
@@ -2391,7 +2343,6 @@
               }
               pendingNotes = {};
               recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec synth*";
-              // Start metronome for entire 4-bar recording
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
@@ -2405,7 +2356,7 @@
                 finalizeRecording();
                 savedSynthPattern = synthPattern.map(step => step ? {...step} : null);
               }
-              stopRecordingMetronome(); // Stop metronome when recording ends
+              stopRecordingMetronome();
               recBtn.classList.remove("recording");
               recBtn.classList.add("looping");
               recBtn.textContent = "looping";
