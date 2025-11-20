@@ -1617,8 +1617,8 @@
       let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
       // ARP FUNCTIONS
-      // FALLBACK VERSION: Crystal Castles / deadmau5 style pluck with ping pong delay
-      // L 1/8, R 1/16, feedback 40%, mix 50%
+      // FALLBACK VERSION: Crystal Castles / deadmau5 style pluck with delay
+      // Delay: 1/8 note, feedback 20%, mix 50% - fades out with each ping
       function createArpVoice(freq, startTime) {
         const ctx = getAudio();
         if (!ctx || !freq) return null;
@@ -1660,19 +1660,17 @@
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + totalDuration);
         
-        // Ping pong delay: L 1/8, R 1/16, feedback 40%, mix 50%
-        const delayL = ctx.createDelay(1.0);
-        const delayR = ctx.createDelay(1.0);
+        // Simple delay: 1/8 note, feedback 20%, mix 50% - fades out with each ping
+        const delay = ctx.createDelay(1.0);
         const feedbackGain = ctx.createGain();
         const wetGain = ctx.createGain();
         const dryGain = ctx.createGain();
         
-        // Delay times
-        delayL.delayTime.setValueAtTime(BEAT_DUR / 2, t0); // 1/8 note (L)
-        delayR.delayTime.setValueAtTime(BEAT_DUR / 4, t0); // 1/16 note (R)
+        // Delay time: 1/8 note
+        delay.delayTime.setValueAtTime(BEAT_DUR / 2, t0);
         
-        // Feedback: 40%
-        feedbackGain.gain.setValueAtTime(0.4, t0);
+        // Feedback: 20% - causes each repeat to fade out
+        feedbackGain.gain.setValueAtTime(0.2, t0);
         
         // Mix: 50% wet, 50% dry
         wetGain.gain.setValueAtTime(0.5, t0);
@@ -1686,20 +1684,16 @@
         gain.connect(dryGain);
         dryGain.connect(ctx.destination);
         
-        // Wet signal to ping pong delay (50%)
+        // Wet signal to delay (50%)
         gain.connect(wetGain);
-        wetGain.connect(delayL); // Start with left delay
+        wetGain.connect(delay);
         
-        // Ping pong: L -> R -> (feedback) -> L -> R
-        // Left delay -> Right delay
-        delayL.connect(delayR);
-        // Right delay -> Left delay (with feedback) - this creates the ping pong
-        delayR.connect(feedbackGain);
-        feedbackGain.connect(delayL);
+        // Feedback loop: delay -> feedback -> delay (fades out with each ping)
+        delay.connect(feedbackGain);
+        feedbackGain.connect(delay);
         
-        // Output from both delays
-        delayL.connect(ctx.destination);
-        delayR.connect(ctx.destination);
+        // Output from delay
+        delay.connect(ctx.destination);
         
         osc.start(t0);
         osc.stop(t0 + totalDuration + 0.1);
