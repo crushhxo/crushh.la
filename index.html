@@ -1493,7 +1493,14 @@
         if (!ctx) return;
         const now = ctx.currentTime;
 
+        // Envelope parameters - match sequencer for consistency
+        const attack = 0.02;
+        const decay = 0.06;
+        const sustainLevel = 0.22;
+        const maxLevel = 0.23;
+
         if (!currentVoice) {
+          // Create new voice
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           const distortion = ctx.createWaveShaper();
@@ -1504,8 +1511,11 @@
           distortion.curve = createDistortionCurve(4);
           distortion.oversample = "2x";
 
+          // Proper envelope with attack, decay, and sustain
           gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+          gain.gain.linearRampToValueAtTime(maxLevel, now + attack);
+          gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
+          // Keep at sustain level indefinitely until released
 
           osc.connect(distortion);
           distortion.connect(gain);
@@ -1513,13 +1523,49 @@
 
           osc.start(now);
 
-          currentVoice = { osc, gain };
+          currentVoice = { osc, gain, currentFreq: freq, sustainLevel, lastNote: mapped };
         } else {
-          const { osc } = currentVoice;
+          // Glide to new note - maintain continuous sound with no gaps or volume drops
+          const { osc, gain, lastNote } = currentVoice;
+          
+          // Only update if note actually changed to avoid unnecessary operations
+          if (lastNote === mapped && Math.abs(osc.frequency.value - freq) < 0.1) {
+            // Same note, no need to update
+            return;
+          }
+          
+          // Get current gain to check if we need to prevent drops
+          const currentGain = gain.gain.value;
+          
+          // Cancel any scheduled frequency changes to prevent conflicts
           osc.frequency.cancelScheduledValues(now);
+          
+          // Get current frequency and set it to prevent clicks
           const currentFreq = osc.frequency.value;
           osc.frequency.setValueAtTime(currentFreq, now);
+          
+          // Smooth glide to new frequency (Serum 2 style portamento)
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          
+          // CRITICAL: Maintain gain to prevent volume drops and gaps when sliding
+          // Cancel ALL scheduled gain changes first to prevent any conflicts, drops, or gaps
+          gain.gain.cancelScheduledValues(now);
+          
+          // Always maintain at least sustain level - never let it drop below
+          // This prevents volume ducking and ensures continuous sound with no gaps
+          const targetGain = Math.max(currentGain, sustainLevel);
+          
+          // Set gain to target level and maintain it
+          // This single operation prevents volume drops and ensures continuous sound
+          gain.gain.setValueAtTime(targetGain, now);
+          
+          // Maintain at sustain level going forward to keep consistent volume while sliding
+          // This prevents gaps and ensures smooth, continuous sound
+          gain.gain.setValueAtTime(sustainLevel, now + 0.001);
+          
+          // Update voice tracking
+          currentVoice.currentFreq = freq;
+          currentVoice.lastNote = mapped;
         }
       }
 
@@ -1536,11 +1582,19 @@
         const now = ctx.currentTime;
         const { osc, gain } = currentVoice;
 
+        const release = 0.08;
+        
+        // Cancel any scheduled gain changes
         gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.linearRampToValueAtTime(0, now + 0.06);
+        
+        // Get current gain and start release from current level
+        const currentGain = gain.gain.value;
+        gain.gain.setValueAtTime(currentGain, now);
+        
+        // Smooth release
+        gain.gain.linearRampToValueAtTime(0, now + release);
 
-        osc.stop(now + 0.07);
+        osc.stop(now + release + 0.01);
         currentVoice = null;
       }
 
