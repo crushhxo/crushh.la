@@ -1827,6 +1827,7 @@
         
         // Check for next note to determine if we should extend this note (Serum 2 mono portamento style)
         // In mono portamento mode, we want continuous sound with no gaps
+        // IMPORTANT: Handle loop boundary correctly - step 63 -> step 0
         const nextStep = (localStep + 1) % TOTAL_STEPS;
         const nextEvt = synthPattern[nextStep];
         const hasNextNote = nextEvt !== null;
@@ -1841,11 +1842,12 @@
         let adjustedDuration = duration;
         if (hasNextNote && gap > 0) {
           // Extend this note to connect seamlessly to the next note
-          // This ensures no gaps in the continuous voice
+          // This ensures no gaps in the continuous voice, including loop boundary
           adjustedDuration = duration + gap;
         }
         
         // Always pass as legato if there's a next note (for continuous voice)
+        // This ensures seamless transitions including loop boundary (step 63 -> step 0)
         const isLegato = hasNextNote;
         
         // Pass to triggerSeqNote - use adjusted duration to eliminate gaps
@@ -1878,26 +1880,40 @@
         
         let startFreq = freq;
         let voiceIsActive = false;
-        const legatoWindow = 0.1; // 100ms window for legato (generous for continuous voice)
+        const legatoWindow = 0.15; // 150ms window for legato (generous for continuous voice and loop boundary)
         
         // Check if we have an active voice or a recently ended voice
         // In mono portamento mode, we want to maintain continuous sound
+        // IMPORTANT: Check if voice will be active at scheduled start time (t0), not current time (now)
+        // This is crucial for loop boundary where we're scheduling ahead
         if (sequencerVoice && sequencerVoice.osc) {
-          if (sequencerVoice.noteEndTime > now) {
-            // Voice is still playing - definitely legato
-            voiceIsActive = true;
-            startFreq = sequencerVoice.osc.frequency.value;
-            isLegato = true;
-          } else {
-            // Voice just ended - check if within legato window
-            const timeSinceEnd = now - sequencerVoice.noteEndTime;
-            if (timeSinceEnd <= legatoWindow && lastSequencerFreq !== null) {
-              // Within legato window - reactivate voice for seamless connection
+          try {
+            // Check if voice will still be playing when this note starts
+            // Use t0 (scheduled start time) instead of now for accurate detection
+            // Add small buffer to account for timing variations
+            const voiceEndBuffer = 0.01; // 10ms buffer for timing safety
+            if (sequencerVoice.noteEndTime > (t0 - voiceEndBuffer)) {
+              // Voice will still be playing when this note starts - definitely legato
               voiceIsActive = true;
-              startFreq = lastSequencerFreq;
+              startFreq = sequencerVoice.osc.frequency.value;
               isLegato = true;
-            } else if (lastSequencerFreq !== null) {
-              // Outside legato window but still glide from last frequency (portamento always on)
+            } else {
+              // Voice ended before this note starts - check if within legato window
+              const timeSinceEnd = t0 - sequencerVoice.noteEndTime;
+              if (timeSinceEnd <= legatoWindow && timeSinceEnd >= -voiceEndBuffer && lastSequencerFreq !== null) {
+                // Within legato window - reactivate voice for seamless connection
+                // This handles loop boundary where note at 4.1 needs to tie into 1.1
+                voiceIsActive = true;
+                startFreq = lastSequencerFreq;
+                isLegato = true;
+              } else if (lastSequencerFreq !== null) {
+                // Outside legato window but still glide from last frequency (portamento always on)
+                startFreq = lastSequencerFreq;
+              }
+            }
+          } catch (e) {
+            // If osc is invalid, fall back to last frequency
+            if (lastSequencerFreq !== null) {
               startFreq = lastSequencerFreq;
             }
           }
@@ -1915,19 +1931,33 @@
           const currentFreq = osc.frequency.value;
           const currentGain = gain.gain.value;
           
-          // Cancel any scheduled frequency changes
+          // Cancel any scheduled frequency changes from now onwards
           osc.frequency.cancelScheduledValues(now);
           
-          // Set current frequency to prevent clicks
+          // Set current frequency at now to maintain it until note starts
+          // This prevents any unwanted frequency changes between now and t0
           osc.frequency.setValueAtTime(currentFreq, now);
           
           // Smooth glide to new frequency (Serum 2 portamento - 160ms)
-          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          // Start glide at t0 (when note starts) to ensure proper timing, especially for loop boundary
+          // If t0 is in the future, the frequency will stay at currentFreq until t0, then glide
+          if (t0 > now) {
+            // Note starts in the future - maintain current freq until then
+            osc.frequency.setValueAtTime(currentFreq, t0);
+            osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
+          } else {
+            // Note starts now or in the past - start gliding immediately
+            osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          }
           
           // Update the sequencer voice to track the new note
+          // IMPORTANT: Update noteEndTime to the new note's end time for proper loop boundary detection
           sequencerVoice.currentFreq = freq;
           sequencerVoice.noteEndTime = t0 + total;
           lastSequencerFreq = freq;
+          
+          // Don't let setTimeout clear this voice prematurely - it's still active
+          // The setTimeout will only clear if it matches the old osc, which is fine
           
           // For legato notes: DON'T retrigger envelope - maintain current level
           // This is key to Serum 2 behavior - envelope only retriggers on non-legato notes
@@ -1937,19 +1967,30 @@
           
           // Always maintain sustain for legato notes (which should be most notes in mono portamento)
           if (isLegato) {
-            // Legato: maintain current gain level, don't retrigger envelope
-            // Keep sustain level throughout to prevent gaps
+            // Legato: maintain sustain level, don't retrigger envelope
+            // FIX: Ensure we're at least at sustain level to prevent volume drops
+            // Use the higher of currentGain or sustainLevel to prevent drops
+            const targetGain = Math.max(currentGain, sustainLevel);
+            
             gain.gain.cancelScheduledValues(now);
-            gain.gain.setValueAtTime(currentGain, now);
-            // Maintain sustain level throughout, release only at end
+            // Set target gain immediately to prevent any volume drops
+            gain.gain.setValueAtTime(targetGain, now);
+            
+            // If note starts in the future, maintain target gain until note starts
+            // Then maintain sustain level throughout, release only at end
+            if (t0 > now) {
+              gain.gain.setValueAtTime(targetGain, t0);
+            }
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
             // Non-legato: still maintain if in sustain to prevent gaps
             if (currentGain >= sustainLevel * 0.5) {
               // Already in sustain or decay - maintain it to prevent gaps
+              // FIX: Ensure we're at least at sustain level
+              const targetGain = Math.max(currentGain, sustainLevel);
               gain.gain.cancelScheduledValues(now);
-              gain.gain.setValueAtTime(sustainLevel, now);
+              gain.gain.setValueAtTime(targetGain, now);
               gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
               gain.gain.linearRampToValueAtTime(0, t0 + total);
             } else {
