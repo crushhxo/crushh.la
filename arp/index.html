@@ -1008,8 +1008,7 @@
       let arpOctaveOffset = 2; // Arp starts at +2 octaves (highest bass octave) and can go up/down from there
       let liveArpInterval = null; // For live arp when holding key
       let liveArpRootNote = null; // Current held note for live arp
-      let arpRecordingInterval = null; // For continuously recording arp root note while key is held
-      let arpRecordingRootNote = null; // Root note being recorded for arp
+      // Removed arpRecordingInterval - arp now records the actual notes played by live arp
 
       let transportStartTime = null;
       let transportRunning = false;
@@ -1434,6 +1433,24 @@
             const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
             const now = ctx.currentTime;
             createArpVoice(adjustedFreq, now);
+            
+            // Record the actual arp note being played if we're recording
+            if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
+              const elapsedFromRecStart = Math.max(0, now - recStartTime);
+              const stepFloat = elapsedFromRecStart / STEP_DUR;
+              let localStart = Math.round(stepFloat);
+              const step0Threshold = STEP_DUR * 0.75;
+              if (elapsedFromRecStart <= step0Threshold) {
+                localStart = 0;
+              }
+              localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
+              
+              // Only record if we haven't exceeded the recording end time
+              if (now < recEndTime && localStart < TOTAL_STEPS) {
+                // Record the actual note being played, not the root
+                arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
+              }
+            }
           }
           arpIndex++;
         };
@@ -1720,38 +1737,13 @@
         // This allows arp to play while bass is being recorded and vice versa
         const localStep = globalStep % TOTAL_STEPS;
         
-        // Find the most recent root note by looking backwards through the pattern
-        // The arp cycle is phase-locked to the step grid for rock solid alignment with drums
-        let rootNote = null;
-        let arpMode = "up";
+        // Check if there's a recorded note at this step
+        // The live arp records the actual arp notes being played, not root notes
+        const evt = arpPattern[localStep];
+        if (!evt || !evt.rootNote) return;
         
-        // Look backwards through all 64 steps to find the most recent root note
-        // This determines which arp pattern to play (which scale notes)
-        for (let i = 0; i < TOTAL_STEPS; i++) {
-          const checkStep = (localStep - i + TOTAL_STEPS) % TOTAL_STEPS;
-          const checkEvt = arpPattern[checkStep];
-          if (checkEvt && checkEvt.rootNote) {
-            // Found the most recent root note
-            rootNote = checkEvt.rootNote;
-            arpMode = checkEvt.arpMode || "up";
-            break;
-          }
-        }
-        
-        if (!rootNote) return;
-        
-        // The arp cycle is phase-locked to the step grid for rock solid alignment with drums
-        // Step 0 (1.1) = root (index 0), Step 1 (1.2) = note2 (index 1), etc.
-        // This ensures if you press at 1.2, it plays the second note, then third, fourth, then root on 2.1
-        // The cycle continues continuously for all 64 steps, always aligned with the step grid
-        const arpNoteIndex = localStep % 4;
-        
-        // Generate arp notes from the root
-        const arpNotes = generateArpNotes(rootNote, arpMode);
-        if (arpNotes.length === 0) return;
-        
-        // Play the arp note that corresponds to this step in the continuous cycle
-        const note = arpNotes[arpNoteIndex % arpNotes.length];
+        // Play the recorded note directly (rootNote field stores the actual note played by live arp)
+        const note = evt.rootNote;
         const freq = noteFreq[note];
         if (freq) {
           // Apply arp octave offset (separate from bass)
@@ -1976,54 +1968,10 @@
         const now = ctx.currentTime;
         
         if (currentMode === "arp") {
-          const elapsedFromRecStart = Math.max(0, now - recStartTime);
-          const stepFloat = elapsedFromRecStart / STEP_DUR;
-          let localStart = Math.round(stepFloat);
-          const step0Threshold = STEP_DUR * 0.75;
-          if (elapsedFromRecStart <= step0Threshold) {
-            localStart = 0;
-          }
-          localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
-          
-          // Record the root note at this step
-          arpPattern[localStart] = { rootNote: mappedNote, arpMode: currentArpMode };
-          
-          // Start continuous recording interval if not already running for this note
-          // This ensures the root note is recorded at each step while key is held
-          if (mappedNote !== arpRecordingRootNote) {
-            // Clear any existing interval
-            if (arpRecordingInterval) {
-              clearInterval(arpRecordingInterval);
-              arpRecordingInterval = null;
-            }
-            arpRecordingRootNote = mappedNote;
-            const recordInterval = () => {
-              if (arpRecState !== "recording" || arpRecordingRootNote !== mappedNote) {
-                if (arpRecordingInterval) {
-                  clearInterval(arpRecordingInterval);
-                  arpRecordingInterval = null;
-                }
-                arpRecordingRootNote = null;
-                return;
-              }
-              const elapsed = Math.max(0, ctx.currentTime - recStartTime);
-              const step = Math.floor(elapsed / STEP_DUR);
-              const clampedStep = Math.max(0, Math.min(step, TOTAL_STEPS - 1));
-              // Only record if we haven't exceeded the recording end time
-              if (clampedStep < TOTAL_STEPS) {
-                arpPattern[clampedStep] = { rootNote: mappedNote, arpMode: currentArpMode };
-              } else {
-                // Recording has ended, clear interval
-                if (arpRecordingInterval) {
-                  clearInterval(arpRecordingInterval);
-                  arpRecordingInterval = null;
-                }
-                arpRecordingRootNote = null;
-              }
-            };
-            // Record at 16th note intervals (STEP_DUR)
-            arpRecordingInterval = setInterval(recordInterval, STEP_DUR * 1000);
-          }
+          // For arp mode, we don't record in recordNoteOn
+          // Instead, the live arp's playNextNote function records the actual arp notes being played
+          // This ensures we record what you hear, not just the root note
+          // The live arp will start playing (via startLiveArp) and record each note it plays
           return;
         }
         
@@ -2089,14 +2037,9 @@
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
         if (currentRecState !== "recording") return;
         if (currentMode === "arp") {
-          // Stop continuous recording interval
-          if (arpRecordingInterval) {
-            clearInterval(arpRecordingInterval);
-            arpRecordingInterval = null;
-          }
-          if (arpRecordingRootNote === mappedNote) {
-            arpRecordingRootNote = null;
-          }
+          // For arp mode, recording stops when key is released
+          // The live arp will stop (via stopLiveArp) and stop recording notes
+          // No need to clear intervals here as live arp handles it
           if (pendingNotes[mappedNote]) delete pendingNotes[mappedNote];
           return;
         }
@@ -2130,12 +2073,8 @@
 
       function finalizeRecording() {
         if (currentMode === "arp") {
-          // Clear arp recording interval
-          if (arpRecordingInterval) {
-            clearInterval(arpRecordingInterval);
-            arpRecordingInterval = null;
-          }
-          arpRecordingRootNote = null;
+          // Arp recording is handled by live arp's playNextNote
+          // No cleanup needed here
           pendingNotes = {};
           currentRecordedNote = null;
           return;
@@ -2328,12 +2267,7 @@
           bassRecState = "idle";
           arpRecState = "idle";
           recState = "idle";
-          // Clear arp recording interval
-          if (arpRecordingInterval) {
-            clearInterval(arpRecordingInterval);
-            arpRecordingInterval = null;
-          }
-          arpRecordingRootNote = null;
+          // Arp recording is handled by live arp, no interval to clear
           pendingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
@@ -2390,12 +2324,7 @@
               bassRecState = "idle";
             }
             
-            // Clear arp recording interval
-            if (arpRecordingInterval) {
-              clearInterval(arpRecordingInterval);
-              arpRecordingInterval = null;
-            }
-            arpRecordingRootNote = null;
+            // Arp recording is handled by live arp, no interval to clear
             pendingNotes = {};
             currentRecordedNote = null;
             
