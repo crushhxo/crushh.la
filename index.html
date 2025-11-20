@@ -1261,7 +1261,7 @@
 
       // --- LIVE SYNTH VOICE (monophonic) ---
       let currentVoice = null;
-      const glideTime = 0.08; // Portamento time for overlapping/legato notes only
+      const glideTime = 0.16; // Portamento time (160ms to match Serum 2)
       let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
 
       function startOrGlideToNote(rawNote) {
@@ -1441,26 +1441,31 @@
           ? evt.lengthSeconds 
           : (evt.lengthSteps * STEP_DUR);
         
-        // Check for legato connections (Serum 2 style)
-        // Legato = notes that should be tied together with no gaps
-        const prevStep = (localStep - 1 + TOTAL_STEPS) % TOTAL_STEPS;
+        // Check for next note to determine if we should extend this note (Serum 2 mono portamento style)
+        // In mono portamento mode, we want continuous sound with no gaps
         const nextStep = (localStep + 1) % TOTAL_STEPS;
-        const prevEvt = synthPattern[prevStep];
         const nextEvt = synthPattern[nextStep];
+        const hasNextNote = nextEvt !== null;
         
         // Calculate timing
         const noteEndTime = when + duration;
-        const prevNoteEndTime = when - STEP_DUR + (prevEvt ? (prevEvt.lengthSeconds || prevEvt.lengthSteps * STEP_DUR) : 0);
         const nextNoteStartTime = when + STEP_DUR;
+        const gap = nextNoteStartTime - noteEndTime;
         
-        // Determine legato: if previous note just ended (within 50ms) OR this note extends to/over next
-        const legatoThreshold = 0.05; // 50ms window
-        const isLegatoFromPrev = prevEvt && (when - prevNoteEndTime <= legatoThreshold);
-        const isLegatoToNext = nextEvt && (noteEndTime >= nextNoteStartTime - legatoThreshold);
-        const isLegato = isLegatoFromPrev || isLegatoToNext;
+        // If there's a next note and a gap, we need to extend this note to eliminate the gap
+        // This creates the continuous, tied-together sound of Serum 2 mono portamento
+        let adjustedDuration = duration;
+        if (hasNextNote && gap > 0) {
+          // Extend this note to connect seamlessly to the next note
+          // This ensures no gaps in the continuous voice
+          adjustedDuration = duration + gap;
+        }
         
-        // Pass legato info to triggerSeqNote - use exact recorded duration, no modification
-        triggerSeqNote(evt.note, duration, when, isLegato);
+        // Always pass as legato if there's a next note (for continuous voice)
+        const isLegato = hasNextNote;
+        
+        // Pass to triggerSeqNote - use adjusted duration to eliminate gaps
+        triggerSeqNote(evt.note, adjustedDuration, when, isLegato);
       }
 
       function triggerSeqNote(noteName, durationSeconds, startTime, isLegato = false) {
@@ -1482,16 +1487,17 @@
         const total = Math.max(0.01, durationSeconds);
 
         // Serum 2 style monophonic portamento:
-        // - Always maintain one continuous voice
-        // - If previous note is still playing OR just ended (within legato window), reuse the voice
+        // - Always maintain one continuous voice (never silence)
+        // - If there's any active voice or recently ended voice, reuse it
         // - Only change frequency, don't retrigger envelope for legato notes
         // - Always glide from current/last frequency
         
         let startFreq = freq;
         let voiceIsActive = false;
-        const legatoWindow = 0.05; // 50ms window for legato (Serum 2 style)
+        const legatoWindow = 0.1; // 100ms window for legato (generous for continuous voice)
         
         // Check if we have an active voice or a recently ended voice
+        // In mono portamento mode, we want to maintain continuous sound
         if (sequencerVoice && sequencerVoice.osc) {
           if (sequencerVoice.noteEndTime > now) {
             // Voice is still playing - definitely legato
@@ -1507,16 +1513,17 @@
               startFreq = lastSequencerFreq;
               isLegato = true;
             } else if (lastSequencerFreq !== null) {
-              // Outside legato window but still glide from last frequency
+              // Outside legato window but still glide from last frequency (portamento always on)
               startFreq = lastSequencerFreq;
             }
           }
         } else if (lastSequencerFreq !== null) {
-          // No active voice, but we have last frequency - always glide from it
+          // No active voice, but we have last frequency - always glide from it (portamento always on)
           startFreq = lastSequencerFreq;
         }
 
         // Serum 2 style: If voice is active (legato), reuse it - only change frequency, maintain envelope
+        // This creates the continuous, tied-together sound with no gaps
         if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
@@ -1530,7 +1537,7 @@
           // Set current frequency to prevent clicks
           osc.frequency.setValueAtTime(currentFreq, now);
           
-          // Smooth glide to new frequency (Serum 2 portamento)
+          // Smooth glide to new frequency (Serum 2 portamento - 160ms)
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
@@ -1540,27 +1547,34 @@
           
           // For legato notes: DON'T retrigger envelope - maintain current level
           // This is key to Serum 2 behavior - envelope only retriggers on non-legato notes
+          // Maintain sustain to prevent gaps in the continuous voice
           const sustainLevel = 0.22;
           const release = 0.08;
           
+          // Always maintain sustain for legato notes (which should be most notes in mono portamento)
           if (isLegato) {
             // Legato: maintain current gain level, don't retrigger envelope
-            // Only schedule release at the end of this note
+            // Keep sustain level throughout to prevent gaps
             gain.gain.cancelScheduledValues(now);
             gain.gain.setValueAtTime(currentGain, now);
             // Maintain sustain level throughout, release only at end
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
-            // Non-legato: can allow natural envelope, but still maintain if in sustain
-            if (currentGain >= sustainLevel * 0.8) {
-              // Already in sustain - maintain it
+            // Non-legato: still maintain if in sustain to prevent gaps
+            if (currentGain >= sustainLevel * 0.5) {
+              // Already in sustain or decay - maintain it to prevent gaps
               gain.gain.cancelScheduledValues(now);
               gain.gain.setValueAtTime(sustainLevel, now);
               gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
               gain.gain.linearRampToValueAtTime(0, t0 + total);
+            } else {
+              // Voice was fading - bring it back to sustain to prevent gaps
+              gain.gain.cancelScheduledValues(now);
+              gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
+              gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+              gain.gain.linearRampToValueAtTime(0, t0 + total);
             }
-            // Otherwise let it continue naturally
           }
           
           // Schedule oscillator stop for the new note's end time
