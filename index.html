@@ -1440,7 +1440,33 @@
         const duration = evt.lengthSeconds !== undefined 
           ? evt.lengthSeconds 
           : (evt.lengthSteps * STEP_DUR);
-        triggerSeqNote(evt.note, duration, when);
+        
+        // Check if next step has a note for legato detection
+        const nextStep = (localStep + 1) % TOTAL_STEPS;
+        const nextEvt = synthPattern[nextStep];
+        const hasNextNote = nextEvt !== null;
+        
+        // Calculate when this note would end
+        const noteEndTime = when + duration;
+        const nextNoteStartTime = when + STEP_DUR;
+        
+        // For fluid glides/ties: if there's a next note, extend this note to connect seamlessly
+        // This creates the "tied" effect where notes flow into each other
+        let adjustedDuration = duration;
+        if (hasNextNote) {
+          const gap = nextNoteStartTime - noteEndTime;
+          // If there's any gap (even small), extend to eliminate it for seamless glides
+          // Use a threshold to avoid extending notes that are intentionally staccato
+          if (gap > 0 && gap < STEP_DUR * 0.5) {
+            // Extend to connect, but don't extend more than half a step
+            adjustedDuration = duration + gap;
+          } else if (gap <= 0) {
+            // Notes overlap - this is fine, will be handled by legato logic
+            adjustedDuration = duration;
+          }
+        }
+        
+        triggerSeqNote(evt.note, adjustedDuration, when);
       }
 
       function triggerSeqNote(noteName, durationSeconds, startTime) {
@@ -1463,19 +1489,30 @@
         const total = Math.max(0.01, durationSeconds);
 
         // Always use portamento - glide from last frequency (or current if voice is active)
+        // For fluid glides, check if we should connect to previous note (legato/ties)
         let startFreq = freq;
         let voiceIsActive = false;
+        let shouldConnect = false; // Whether to connect this note to the previous one (tied/legato)
         
         if (sequencerVoice && sequencerVoice.osc) {
           // Check if voice is actually still playing (not just scheduled to end)
           try {
-            const oscState = sequencerVoice.osc.playbackState || 
-                           (sequencerVoice.osc._started && sequencerVoice.noteEndTime > now);
             if (sequencerVoice.noteEndTime > now) {
               voiceIsActive = true;
               startFreq = sequencerVoice.osc.frequency.value;
-            } else if (lastSequencerFreq !== null) {
-              startFreq = lastSequencerFreq;
+              shouldConnect = true; // Voice is active, definitely connect
+            } else {
+              // Voice just ended - check if we should connect (within a small window for legato)
+              const timeSinceEnd = now - sequencerVoice.noteEndTime;
+              const legatoWindow = 0.02; // 20ms window for legato connection
+              if (timeSinceEnd <= legatoWindow && lastSequencerFreq !== null) {
+                shouldConnect = true;
+                startFreq = lastSequencerFreq;
+                // Reactivate the voice for seamless connection
+                voiceIsActive = true;
+              } else if (lastSequencerFreq !== null) {
+                startFreq = lastSequencerFreq;
+              }
             }
           } catch (e) {
             // Oscillator might be stopped, use last frequency
@@ -1484,11 +1521,11 @@
             }
           }
         } else if (lastSequencerFreq !== null) {
-          // Voice ended, but we have the last frequency - always glide from it
+          // Voice ended, but we have the last frequency - always glide from it for fluid transitions
           startFreq = lastSequencerFreq;
         }
 
-        // If there's a currently playing sequencer voice and it's still active, reuse it
+        // If there's a currently playing sequencer voice and it's still active, reuse it for legato/ties
         if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
@@ -1504,7 +1541,7 @@
           osc.frequency.setValueAtTime(currentFreq, now);
           gain.gain.setValueAtTime(currentGain, now);
           
-          // Smooth glide to new frequency
+          // Smooth glide to new frequency - use glide time for fluid transitions
           osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           
           // Update the sequencer voice to track the new note
@@ -1512,25 +1549,25 @@
           sequencerVoice.noteEndTime = t0 + total;
           lastSequencerFreq = freq;
           
-          // Smooth envelope transition - maintain current level if in sustain, otherwise continue naturally
+          // Smooth envelope transition - maintain sustain for legato/ties (no gaps)
           const attack = 0.02;
           const decay = 0.06;
           const sustainLevel = 0.22;
           const release = 0.08;
           
-          // If we're in sustain range, smoothly maintain it
-          if (currentGain >= sustainLevel * 0.8) {
-            // Already in sustain, maintain smoothly
-            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
+          // For legato/ties, maintain sustain level to prevent gaps
+          if (shouldConnect || currentGain >= sustainLevel * 0.7) {
+            // Already in sustain or connecting - maintain smoothly without gaps
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.005); // Quick transition to sustain
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else if (currentGain > 0.05) {
             // In decay or transition, continue to sustain smoothly
-            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.02);
+            gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
-            // Voice was fading, restart envelope smoothly
+            // Voice was fading, restart envelope smoothly but maintain connection
             gain.gain.linearRampToValueAtTime(0.23, now + attack);
             gain.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
             gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
