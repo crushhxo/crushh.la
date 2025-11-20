@@ -2329,48 +2329,75 @@
 
       if (recBtn) {
         recBtn.addEventListener("click", async () => {
-          // Cancel any current recording/playback and clear pattern
-          if (recState !== "idle") {
-            // Set button states immediately
-            recState = "idle";
-            recBtn.classList.remove("recording","looping");
-            updateModeUI();
-            stopRecordingMetronome(); // Stop metronome if recording is cancelled
+          // Check if we're trying to stop/clear the current recording
+          // Only stop if we're recording/playing the SAME mode
+          const isCurrentlyLooping = recBtn.classList.contains("looping");
+          const isCurrentlyRecording = recState === "recording" || recState === "count-in";
+          
+          // If looping or recording the same mode, toggle off (stop)
+          if ((isCurrentlyLooping || isCurrentlyRecording) && recState !== "idle") {
+            // Check if we're in the same mode that's currently active
+            // If button says "looping" or is recording, and we're in that mode, stop it
+            // Only stop if we're actually looping/recording the current mode
+            // When switching modes, updateModeUI changes button text but might keep "looping" class
+            // So we need to check if the button text matches the current mode
+            // Only stop if button text is exactly "looping" (meaning this mode is currently playing)
+            // updateModeUI() removes "looping" class and changes text when switching modes
+            const buttonText = recBtn.textContent;
+            const isThisModeLooping = buttonText === "looping" && isCurrentlyLooping;
             
-            // Ensure audio context is initialized for cleanup
-            initAudioCtx();
-            if (audioCtx && audioCtx.state !== "running") {
-              try {
-                await audioCtx.resume();
-              } catch (e) {
-                console.warn("Failed to resume audio context:", e);
+            // Only stop if this is the current mode's loop/recording
+            if (isThisModeLooping || isCurrentlyRecording) {
+              // Stop current recording if in progress
+              if (isCurrentlyRecording) {
+                stopRecordingMetronome();
+                const ctx = getAudio();
+                if (ctx) {
+                  finalizeRecording();
+                }
               }
-            }
-            unlockIOSAudio();
             
-            const ctx = getAudio();
-            if (ctx) {
-              finalizeRecording();
+              // Clear the pattern for the current mode only
+              if (currentMode === "arp") {
+                savedArpPattern = null;
+                arpPattern = new Array(TOTAL_STEPS).fill(null);
+              } else {
+                savedSynthPattern = null;
+                synthPattern = new Array(TOTAL_STEPS).fill(null);
+              }
+              
+              // Clear arp recording interval
+              if (arpRecordingInterval) {
+                clearInterval(arpRecordingInterval);
+                arpRecordingInterval = null;
+              }
+              arpRecordingRootNote = null;
+              pendingNotes = {};
+              currentRecordedNote = null;
+              
+              // Update button state
+              recBtn.classList.remove("recording", "looping");
+              updateModeUI();
+              
+              // Only stop transport if BOTH patterns are now empty
+              const hasSynthPattern = savedSynthPattern && savedSynthPattern.some(step => step !== null);
+              const hasArpPattern = savedArpPattern && savedArpPattern.some(step => step !== null);
+              if (!hasSynthPattern && !hasArpPattern) {
+                stopTransport();
+                recState = "idle";
+                recStartTime = null;
+                recEndTime = null;
+              } else {
+                // Keep transport running, other pattern is still playing
+                recState = "playing";
+              }
+              return;
             }
-            savedSynthPattern = null;
-            savedArpPattern = null;
-            synthPattern = new Array(TOTAL_STEPS).fill(null);
-            arpPattern = new Array(TOTAL_STEPS).fill(null);
-            // Clear arp recording interval
-            if (arpRecordingInterval) {
-              clearInterval(arpRecordingInterval);
-              arpRecordingInterval = null;
-            }
-            arpRecordingRootNote = null;
-            pendingNotes = {};
-            currentRecordedNote = null;
-            recStartTime = null;
-            recEndTime = null;
-            return;
           }
           
-          savedSynthPattern = null;
-          savedArpPattern = null;
+          // If we get here, we're starting a new recording
+          // Don't clear saved patterns - allow both bass and arp to play together
+          // Only clear the pattern for the mode being recorded (done later when recording starts)
           
           // Ensure audio context is initialized and resumed
           initAudioCtx();
