@@ -1378,6 +1378,12 @@
       let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
 
       function startLiveArp(rootNote) {
+        // Only restart if the root note has actually changed
+        if (liveArpRootNote === rootNote && liveArpInterval) {
+          return; // Same note, keep playing
+        }
+        
+        // Root note changed or starting fresh - restart arp
         if (liveArpInterval) {
           clearInterval(liveArpInterval);
           liveArpInterval = null;
@@ -1395,7 +1401,14 @@
         const noteDuration = STEP_DUR; // 16th note timing
         
         const playNextNote = () => {
-          if (!liveArpRootNote) return; // Stop if note released
+          // Only play if we're still on the same root note
+          if (!liveArpRootNote || liveArpRootNote !== rootNote) {
+            if (liveArpInterval) {
+              clearInterval(liveArpInterval);
+              liveArpInterval = null;
+            }
+            return;
+          }
           
           const note = arpNotes[arpIndex % arpNotes.length];
           const freq = noteFreq[note];
@@ -1645,18 +1658,46 @@
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + totalDuration);
         
-        // Light delay for depth (Crystal Castles style)
-        const delay = ctx.createDelay(1.0);
-        const delayGain = ctx.createGain();
-        delay.delayTime.setValueAtTime(BEAT_DUR / 4, t0); // 16th note delay
-        delayGain.gain.setValueAtTime(0.25, t0);
+        // Ping pong delay: L 1/8, R 1/16, feedback 40%, mix 50%
+        const delayL = ctx.createDelay(1.0);
+        const delayR = ctx.createDelay(1.0);
+        const feedbackGain = ctx.createGain();
+        const wetGain = ctx.createGain();
+        const dryGain = ctx.createGain();
         
+        // Delay times
+        delayL.delayTime.setValueAtTime(BEAT_DUR / 2, t0); // 1/8 note (L)
+        delayR.delayTime.setValueAtTime(BEAT_DUR / 4, t0); // 1/16 note (R)
+        
+        // Feedback: 40%
+        feedbackGain.gain.setValueAtTime(0.4, t0);
+        
+        // Mix: 50% wet, 50% dry
+        wetGain.gain.setValueAtTime(0.5, t0);
+        dryGain.gain.setValueAtTime(0.5, t0);
+        
+        // Signal flow
         osc.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
-        gain.connect(delayGain);
-        delayGain.connect(delay);
-        delay.connect(ctx.destination);
+        
+        // Dry signal (50%)
+        gain.connect(dryGain);
+        dryGain.connect(ctx.destination);
+        
+        // Wet signal to ping pong delay (50%)
+        gain.connect(wetGain);
+        wetGain.connect(delayL); // Start with left delay
+        
+        // Ping pong: L -> R -> (feedback) -> L -> R
+        // Left delay -> Right delay
+        delayL.connect(delayR);
+        // Right delay -> Left delay (with feedback) - this creates the ping pong
+        delayR.connect(feedbackGain);
+        feedbackGain.connect(delayL);
+        
+        // Output from both delays
+        delayL.connect(ctx.destination);
+        delayR.connect(ctx.destination);
         
         osc.start(t0);
         osc.stop(t0 + totalDuration + 0.1);
