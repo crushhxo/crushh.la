@@ -757,7 +757,7 @@
 
       <!-- recorder controls -->
       <div class="seq-controls">
-        <button class="seq-button" id="seq-record">rec synth</button>
+        <button class="seq-button" id="seq-record">rec bass</button>
       </div>
 
       <!-- transport -->
@@ -845,7 +845,7 @@
   <div class="tooltip-overlay" id="tooltip-overlay"></div>
   <div class="tooltip-dialogue" id="tooltip-dialogue">
     <button class="tooltip-close" id="tooltip-close">×</button>
-    <p>This is a playable saw wave synthesizer running on a 64 step sequencer. There are also 5 unique drum sequencers with 16 steps each. You can choose from 4 drum sounds within each sequencer. The "m" buttons are part mutes. The "play" button always restarts the sequence at bar 1.1. The "rec synth" button will record a played synth sequence, and will always start recording from bar 1.1 and automatically stop at bar 4.4. If the sequencer is playing while you hit "rec synth", the recording will wait until bar 4.1 to count you in 4 counts to start recording on bar 1.1 Have fun!</p>
+    <p>This is a playable saw wave synthesizer running on a 64 step sequencer. There are also 5 unique drum sequencers with 16 steps each. You can choose from 4 drum sounds within each sequencer. The "m" buttons are part mutes. The "play" button always restarts the sequence at bar 1.1. The "rec bass" button will record a played synth sequence, and will always start recording from bar 1.1 and automatically stop at bar 4.4. If the sequencer is playing while you hit "rec bass", the recording will wait until bar 4.1 to count you in 4 counts to start recording on bar 1.1 Have fun!</p>
   </div>
 
   <script>
@@ -1251,13 +1251,28 @@
         const recBtn = document.getElementById("seq-record");
         if (currentMode === "arp") {
           if (modeSelectors) modeSelectors.classList.add("show-arp");
-          if (recBtn && !recBtn.classList.contains("recording") && !recBtn.classList.contains("looping")) {
-            recBtn.textContent = "rec arp";
+          // Always update button text when switching modes, even if looping
+          // This allows recording arp over bass and vice versa
+          if (recBtn) {
+            if (recBtn.classList.contains("looping")) {
+              // Reset looping state when switching modes so you can record over the other pattern
+              recBtn.classList.remove("looping");
+              recBtn.textContent = "rec arp";
+            } else if (!recBtn.classList.contains("recording")) {
+              recBtn.textContent = "rec arp";
+            }
           }
         } else {
           if (modeSelectors) modeSelectors.classList.remove("show-arp");
-          if (recBtn && !recBtn.classList.contains("recording") && !recBtn.classList.contains("looping")) {
-            recBtn.textContent = "rec synth";
+          // Always update button text when switching modes, even if looping
+          if (recBtn) {
+            if (recBtn.classList.contains("looping")) {
+              // Reset looping state when switching modes so you can record over the other pattern
+              recBtn.classList.remove("looping");
+              recBtn.textContent = "rec bass";
+            } else if (!recBtn.classList.contains("recording")) {
+              recBtn.textContent = "rec bass";
+            }
           }
         }
       }
@@ -2388,7 +2403,7 @@
                 synthPattern = new Array(TOTAL_STEPS).fill(null);
               }
               pendingNotes = {};
-              recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec synth*";
+              recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec bass*";
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
@@ -2456,7 +2471,7 @@
                 synthPattern = new Array(TOTAL_STEPS).fill(null);
               }
               pendingNotes = {};
-              recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec synth*";
+              recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec bass*";
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
 
