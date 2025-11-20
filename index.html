@@ -1354,6 +1354,25 @@
 
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
+        
+        // Handle arp mode - play arp voice directly
+        if (currentMode === "arp") {
+          let freq = noteFreq[mapped];
+          if (!freq) return;
+          
+          // Apply octave offset
+          if (octaveOffset !== 0) {
+            freq = freq * Math.pow(2, octaveOffset);
+          }
+          
+          const ctx = getAudio();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          createArpVoice(freq, now);
+          return;
+        }
+        
+        // Continue with bass synth
         let freq = noteFreq[mapped];
         if (!freq) return;
         
@@ -1530,7 +1549,7 @@
       // --- ARP SYNTH ENGINE (Serum 2 patch recreation) ---
       function createArpVoice(freq, startTime) {
         const ctx = getAudio();
-        if (!ctx) return null;
+        if (!ctx || !freq) return null;
         const now = ctx.currentTime;
         const t0 = Math.max(startTime, now);
 
@@ -1556,23 +1575,17 @@
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
         gain.gain.linearRampToValueAtTime(0, t0 + totalDuration);
 
+        // Simple delay send (no feedback to avoid issues)
         const beatDuration = BEAT_DUR;
         const delayL = ctx.createDelay(1.0);
         const delayR = ctx.createDelay(1.0);
         const delayGainL = ctx.createGain();
         const delayGainR = ctx.createGain();
-        const delayFeedbackL = ctx.createGain();
-        const delayFeedbackR = ctx.createGain();
         
         delayL.delayTime.setValueAtTime(beatDuration / 2, t0);
         delayR.delayTime.setValueAtTime(beatDuration / 4, t0);
-        delayFeedbackL.gain.setValueAtTime(0.3, t0);
-        delayFeedbackR.gain.setValueAtTime(0.3, t0);
-        delayGainL.gain.setValueAtTime(0.4, t0);
-        delayGainR.gain.setValueAtTime(0.4, t0);
-
-        const reverbGain = ctx.createGain();
-        reverbGain.gain.setValueAtTime(0.15, t0);
+        delayGainL.gain.setValueAtTime(0.3, t0);
+        delayGainR.gain.setValueAtTime(0.3, t0);
 
         osc.connect(filter);
         filter.connect(gain);
@@ -1581,13 +1594,8 @@
         gain.connect(delayGainR);
         delayGainL.connect(delayL);
         delayGainR.connect(delayR);
-        delayL.connect(delayFeedbackL);
-        delayR.connect(delayFeedbackR);
-        delayFeedbackL.connect(delayL);
-        delayFeedbackR.connect(delayR);
-        delayL.connect(reverbGain);
-        delayR.connect(reverbGain);
-        reverbGain.connect(ctx.destination);
+        delayL.connect(ctx.destination);
+        delayR.connect(ctx.destination);
 
         osc.start(t0);
         osc.stop(t0 + totalDuration + 0.1);
@@ -1597,6 +1605,7 @@
 
       // --- ARPEGGIATOR LOGIC ---
       function generateArpNotes(rootNote, mode) {
+        if (!rootNote) return [];
         const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
         if (scaleNotes.length === 0) return [];
         
@@ -1617,7 +1626,7 @@
         if (recState !== "playing") return;
         const localStep = globalStep % TOTAL_STEPS;
         const evt = arpPattern[localStep];
-        if (!evt) return;
+        if (!evt || !evt.rootNote) return;
         
         const arpNotes = generateArpNotes(evt.rootNote, evt.arpMode || "up");
         if (arpNotes.length === 0) return;
@@ -1844,7 +1853,7 @@
 
         const now = ctx.currentTime;
         
-        // Handle arp recording differently
+        // Handle arp recording
         if (currentMode === "arp") {
           const elapsedFromRecStart = Math.max(0, now - recStartTime);
           const stepFloat = elapsedFromRecStart / STEP_DUR;
@@ -1865,7 +1874,7 @@
           return;
         }
         
-        // Continue with existing bass synth recording logic below
+        // Continue with bass synth recording
         // If note is played slightly before 1.1, carry it over to start at 1.1
         // Allow very generous tolerance (up to 75% of a step before) to capture early notes
         // This ensures notes played slightly early are always captured at beat 1.1
@@ -1925,6 +1934,15 @@
 
       function recordNoteOff(mappedNote) {
         if (recState !== "recording") return;
+        
+        // For arp mode, we don't track note offs - just clear pending notes
+        if (currentMode === "arp") {
+          if (pendingNotes[mappedNote]) {
+            delete pendingNotes[mappedNote];
+          }
+          return;
+        }
+        
         const ctx = getAudio();
         if (!ctx || recStartTime === null || recEndTime === null) return;
         const data = pendingNotes[mappedNote];
@@ -1954,6 +1972,13 @@
       }
 
       function finalizeRecording() {
+        // For arp mode, we don't need to finalize - notes are recorded directly
+        if (currentMode === "arp") {
+          pendingNotes = {};
+          currentRecordedNote = null;
+          return;
+        }
+        
         // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
         const ctx = getAudio();
         if (ctx && recEndTime !== null) {
