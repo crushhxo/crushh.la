@@ -28,15 +28,6 @@
       padding: 40px 20px 32px;
       perspective: 1200px;
       transform-style: preserve-3d;
-      transition: align-items 0.5s ease;
-    }
-
-    .center-shell.initial-state {
-      align-items: center;
-    }
-
-    .center-shell.revealed {
-      align-items: flex-start;
     }
 
     @media (max-width: 430px) {
@@ -82,6 +73,11 @@
         margin-bottom: 4px; /* Uniform spacing */
         font-size: 10px;
       }
+
+      .email {
+        margin-top: 4px; /* Uniform spacing */
+      }
+    }
 
     .container {
       max-width: 620px;
@@ -651,39 +647,11 @@
       0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
       100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.7); }
     }
-
-    /* Hide sequencer and drums initially - placed at end for maximum specificity */
-    .initial-state .step-indicator,
-    .initial-state .seq-controls,
-    .initial-state .transport,
-    .initial-state .drums,
-    .initial-state .email {
-      opacity: 0 !important;
-      visibility: hidden !important;
-      max-height: 0 !important;
-      margin-top: 0 !important;
-      margin-bottom: 0 !important;
-      overflow: hidden !important;
-      transition: opacity 0.6s ease, visibility 0.6s ease, max-height 0.6s ease, margin 0.6s ease;
-      pointer-events: none !important;
-    }
-
-    /* Show sequencer and drums after piano interaction */
-    .center-shell.revealed .step-indicator,
-    .center-shell.revealed .seq-controls,
-    .center-shell.revealed .transport,
-    .center-shell.revealed .drums,
-    .center-shell.revealed .email {
-      opacity: 1 !important;
-      visibility: visible !important;
-      max-height: 2000px !important;
-      pointer-events: auto !important;
-    }
   </style>
 </head>
 <body>
 
-  <div class="center-shell initial-state">
+  <div class="center-shell">
     <div class="container">
       <!-- logo -->
       <div class="logo-shell">
@@ -1013,21 +981,13 @@
         if (!ctx) return;
         const now = ctx.currentTime;
 
-        // Reduced delay for immediate playback - schedule first step immediately
-        transportStartTime = now + 0.05;
+        transportStartTime = now + 0.15;
         transportRunning = true;
 
         // Start at step 0, schedule it at transportStartTime
         globalStepCounter = 0;
         nextStepTime = transportStartTime;
         lastQuarterVisual = null;
-
-        // Schedule step 0 immediately to avoid delay
-        const localStep = 0;
-        scheduleDrumsForStep(localStep, nextStepTime);
-        scheduleSynthForStep(localStep, nextStepTime);
-        globalStepCounter++;
-        nextStepTime += STEP_DUR;
 
         if (!stepTimer) {
           stepTimer = setInterval(() => {
@@ -1054,7 +1014,7 @@
               scheduleDrumsForStep(localStep, nextStepTime);
               scheduleSynthForStep(localStep, nextStepTime);
 
-              // Increment AFTER scheduling
+              // Increment AFTER scheduling so step 0 plays at transportStartTime
               globalStepCounter++;
               nextStepTime += STEP_DUR;
             }
@@ -2131,18 +2091,6 @@
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
 
-      // Reveal hidden elements on first piano interaction
-      const centerShell = document.querySelector(".center-shell");
-      let hasInteracted = false;
-      
-      function revealElements() {
-        if (!hasInteracted && centerShell) {
-          hasInteracted = true;
-          centerShell.classList.add("revealed");
-          centerShell.classList.remove("initial-state");
-        }
-      }
-
       let pointerDown = false;
       let activeTouchId = null;
       let activeKeyEl = null;
@@ -2170,7 +2118,6 @@
       keys.forEach((key) => {
         key.addEventListener("mousedown", (e) => {
           e.preventDefault();
-          revealElements(); // Reveal elements on first interaction
           pointerDown = true;
           const rawNote = key.getAttribute("data-note");
           if (!rawNote) return;
@@ -2222,7 +2169,6 @@
       // Touch
       piano.addEventListener("touchstart", (e) => {
         e.preventDefault();
-        revealElements(); // Reveal elements on first interaction
         if (activeTouchId !== null) return;
         const touch = e.changedTouches[0];
         activeTouchId = touch.identifier;
@@ -2283,7 +2229,7 @@
 
       piano.addEventListener("touchend", endTouch, { passive: false });
       piano.addEventListener("touchcancel", endTouch, { passive: false });
-    }); // End of DOMContentLoaded for synth/drums
+    });
 
     // Drunk-vision cursor trail
     document.addEventListener("mousemove", (e) => {
