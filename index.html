@@ -862,12 +862,22 @@
     function initAudioCtx() {
       if (!audioCtx) {
         const Ctor = window.AudioContext || window.webkitAudioContext;
-        if (!Ctor) return;
-        audioCtx = new Ctor();
+        if (!Ctor) {
+          audioCtx = null;
+          return;
+        }
+        try {
+          audioCtx = new Ctor();
+        } catch (e) {
+          console.warn("Failed to create AudioContext:", e);
+          audioCtx = null;
+        }
       }
     }
 
     function unlockIOSAudio() {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return;
       initAudioCtx();
       if (!audioCtx || iosAudioUnlocked) return;
       iosAudioUnlocked = true;
@@ -981,9 +991,10 @@
 
     // Synth, drums, transport + sequencer
     document.addEventListener("DOMContentLoaded", () => {
-      if (!window.AudioContext && !window.webkitAudioContext) {
-        console.warn("Web Audio API not supported in this browser.");
-        return;
+      // Check audio support but don't bail out - UI should still work
+      const hasAudioSupport = !!(window.AudioContext || window.webkitAudioContext);
+      if (!hasAudioSupport) {
+        console.warn("Web Audio API not supported in this browser. UI will work but audio will be disabled.");
       }
 
       // --- GLOBAL TRANSPORT ---
@@ -1004,6 +1015,8 @@
       let lastQuarterVisual = null;
 
       function getAudio() {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
         initAudioCtx();
         if (!audioCtx) return null;
         if (audioCtx.state !== "running") {
@@ -1476,7 +1489,7 @@
       };
 
       async function loadDrumBuffers(ctx) {
-        if (drumLoaded || drumLoading) return;
+        if (!ctx || drumLoaded || drumLoading) return;
         drumLoading = true;
         try {
           for (const part of drumParts) {
