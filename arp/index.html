@@ -1,0 +1,2344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>crushh.la - Arp</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #111111;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      overflow-y: auto;
+      cursor: default;
+    }
+
+    .center-shell {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      box-sizing: border-box;
+      padding: 40px 20px 32px;
+      perspective: 1200px;
+      transform-style: preserve-3d;
+    }
+
+    @media (max-width: 430px) {
+      .center-shell {
+        padding: 12px 12px 12px;
+        min-height: 100vh;
+        align-items: flex-start;
+        padding-top: 12px;
+        transform: scale(0.9);
+        transform-origin: top center;
+      }
+
+      .logo-shell {
+        margin-bottom: 4px; /* Uniform spacing - match drum-header margin-bottom */
+      }
+
+      .synth {
+        margin-top: 4px; /* Uniform spacing */
+      }
+
+      .step-indicator {
+        margin-top: 4px; /* Uniform spacing */
+        gap: 3px;
+      }
+
+      .seq-controls {
+        margin-top: 4px; /* Uniform spacing */
+      }
+
+      .transport {
+        margin-top: 4px; /* Uniform spacing */
+        gap: 4px;
+      }
+
+      .drums {
+        margin-top: 4px; /* Uniform spacing */
+        row-gap: 10px;
+        column-gap: 10px;
+      }
+
+      .ringer-note {
+        margin-top: 4px; /* Uniform spacing */
+        margin-bottom: 4px; /* Uniform spacing */
+        font-size: 10px;
+      }
+
+      .email {
+        margin-top: 4px; /* Uniform spacing */
+      }
+    }
+
+    .container {
+      max-width: 620px;
+      width: 100%;
+    }
+
+    /* outer shell: handles fade + 3D crash */
+    .logo-shell {
+      display: flex;
+      justify-content: center;
+      margin: 0 auto 12px auto; /* Match drum sequencer row-gap spacing */
+      opacity: 0;
+      transform: translateZ(0);
+      will-change: transform, opacity, filter;
+    }
+
+    /* inner img: only for flicker */
+    .logo {
+      width: 100%;
+      max-width: 260px; /* match piano width */
+      height: auto;
+      display: block;
+      opacity: 1;
+      transform: translate(0, 0) skewX(0deg);
+      will-change: transform, opacity, filter;
+    }
+
+    .logo-shell.normal-in {
+      animation: logoInitialFade 2.2s ease forwards;
+      animation-delay: 0.4s;
+    }
+
+    .logo-shell.crash-in {
+      transform-origin: center center;
+      animation: logoCrash 0.8s cubic-bezier(0.2, 0.8, 0.25, 1.1) forwards;
+    }
+
+    @keyframes logoInitialFade {
+      0%   { opacity: 0; transform: translateY(4px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes logoCrash {
+      0% {
+        opacity: 0;
+        transform: translateZ(950px) scale(2.9) rotateX(16deg);
+        filter: blur(12px) contrast(1.35);
+      }
+      30% {
+        opacity: 1;
+        transform: translateZ(200px) scale(1.6) rotateX(8deg);
+        filter: blur(6px) contrast(1.25);
+      }
+      55% {
+        opacity: 1;
+        transform: translateZ(0) scale(1.04) rotateX(0deg);
+        filter: blur(1px) contrast(1.12);
+      }
+      78% {
+        transform: translateZ(-28px) scale(0.985);
+        filter: blur(0.4px) contrast(1.04);
+      }
+      100% {
+        opacity: 1;
+        transform: translateZ(0) scale(1);
+        filter: none;
+      }
+    }
+
+    /* synth piano layout */
+    .synth {
+      margin-top: 6px; /* Reduced spacing to shift elements up */
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .scale-selectors {
+      position: absolute;
+      left: calc(50% - 130px - 60px); /* Position to the left of centered piano (piano is 260px wide, centered at 50%, so left edge is at 50% - 130px, then subtract selector width + small gap) */
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .scale-selector {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease;
+      min-width: 50px;
+      text-align: center;
+    }
+
+    .scale-selector:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .scale-selector:focus {
+      outline: none;
+      border-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .octave-controls {
+      position: absolute;
+      left: calc(50% + 130px + 8px); /* Position to the right of centered piano (piano is 260px wide, centered at 50%, so right edge is at 50% + 130px, then add small gap) */
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .octave-button {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease;
+      min-width: 50px;
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .octave-button:hover {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .octave-button:active {
+      transform: translateY(1px);
+    }
+
+    .octave-button:focus {
+      outline: none;
+      border-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .piano {
+      position: relative;
+      width: 260px;
+      height: 110px;
+      margin: 0 auto 4px auto;
+      display: block;
+      animation: pianoFloat 6s ease-in-out infinite alternate;
+    }
+
+    @keyframes pianoFloat {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-3px); }
+    }
+
+    .white-keys {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      gap: 0;
+    }
+
+    .black-keys {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 65%;
+      pointer-events: none;
+    }
+
+    .key {
+      border-radius: 3px;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      overflow: hidden;
+      transition:
+        background 90ms ease,
+        transform 90ms ease,
+        filter 90ms ease,
+        border-color 90ms ease;
+    }
+
+    .key::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(circle at 10% 20%, rgba(0,0,0,0.05) 0, transparent 40%),
+        radial-gradient(circle at 80% 60%, rgba(0,0,0,0.04) 0, transparent 45%),
+        radial-gradient(circle at 30% 80%, rgba(0,0,0,0.045) 0, transparent 50%);
+      mix-blend-mode: multiply;
+      opacity: 0.4;
+    }
+
+    .key.white {
+      flex: 1;
+      height: 100%;
+      border: 1px solid #b9b9b9;
+      background: linear-gradient(to bottom, #d7d7d7 0%, #c5c5c5 100%);
+    }
+
+    .key.black {
+      position: absolute;
+      width: 22px;
+      height: 70%;
+      border: 1px solid #747272;
+      background: linear-gradient(to bottom, #9c9a97 0%, #7c7a77 100%);
+      z-index: 2;
+      pointer-events: auto;
+    }
+
+    .key.black.csharp { left: 22px; }
+    .key.black.dsharp { left: 54px; }
+    .key.black.fsharp { left: 117px; }
+    .key.black.gsharp { left: 149px; }
+    .key.black.asharp { left: 181px; }
+
+    .key:active,
+    .key.is-down {
+      transform: translateY(1px);
+      filter: brightness(0.94) contrast(1.03);
+      border-color: #9c9c9c;
+    }
+
+    /* transport + sequencer */
+    .step-indicator {
+      margin-top: 4px;
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      width: 260px; /* match piano width */
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      box-sizing: border-box;
+      border: 1px solid #111111;
+      background: #ffffff;
+      transition: background 80ms ease, transform 80ms ease;
+      flex: 1; /* distribute evenly to fill 260px width */
+    }
+
+    .step-dot.downbeat {
+      background: #e0e0e0; /* darker grey for downbeats */
+    }
+
+    .step-dot.active {
+      background: #111111;
+      transform: translateY(1px);
+    }
+
+    .step-dot.downbeat.active {
+      background: #111111;
+      transform: translateY(1px);
+    }
+
+    .seq-controls {
+      margin-top: 4px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .seq-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.12em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .seq-button.recording {
+      background: #b80000;
+      border-color: #b80000;
+      color: #f7f7f7;
+      transform: translateY(1px);
+    }
+
+    .seq-button.looping {
+      background: #111111;
+      border-color: #111111;
+      color: #f7f7f7;
+    }
+
+    .transport {
+      margin-top: 4px;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      position: relative;
+    }
+
+    .transport-button {
+      font-size: 11px;
+      text-transform: lowercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .transport-button:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .transport-button.active {
+      background: #111111;
+      color: #f7f7f7;
+      border-color: #111111;
+      transform: translateY(1px);
+    }
+
+    .tooltip-button {
+      position: absolute;
+      right: calc(50% - 130px); /* Align with right edge of drum sequencers (260px container centered) */
+      font-size: 11px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.03);
+      color: #111111;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      font-weight: normal;
+      line-height: 1;
+    }
+
+    .tooltip-button:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .tooltip-dialogue {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 320px;
+      width: calc(100% - 40px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 1000;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #111111;
+      display: none;
+    }
+
+    .tooltip-dialogue.active {
+      display: block;
+    }
+
+    .tooltip-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 999;
+      display: none;
+    }
+
+    .tooltip-overlay.active {
+      display: block;
+    }
+
+    .tooltip-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      border: none;
+      font-size: 18px;
+      color: #111111;
+      cursor: pointer;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.6;
+      transition: opacity 120ms ease;
+    }
+
+    .tooltip-close:hover {
+      opacity: 1;
+    }
+
+    @media (max-width: 430px) {
+      .tooltip-button {
+        right: calc(50% - 130px);
+      }
+
+      .tooltip-dialogue {
+        max-width: 280px;
+        padding: 16px;
+        font-size: 11px;
+      }
+    }
+
+    /* drums */
+    .drums {
+      margin-top: 16px;
+      max-width: 260px; /* matches piano width */
+      margin-left: auto;
+      margin-right: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 12px;
+      row-gap: 12px;
+      align-items: flex-start;
+      justify-items: center;
+    }
+
+    .drum-lane {
+      width: 100%;
+    }
+
+    .drum-lane[data-part="perc"] {
+      grid-column: 1 / -1;
+      max-width: 140px;
+      margin: 0 auto;
+    }
+
+    .drum-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+      width: 120px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .drum-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.02);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      flex-shrink: 0;
+      min-width: 24px;
+    }
+
+    .drum-button:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    .drum-button.active {
+      background: #111111;
+      color: #f7f7f7;
+      border-color: #111111;
+      transform: translateY(1px);
+    }
+
+    .drum-select {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.3);
+      background: rgba(0, 0, 0, 0.02);
+      color: #111111;
+      letter-spacing: 0.08em;
+      text-transform: none;
+      outline: none;
+      cursor: pointer;
+      flex-shrink: 0;
+      min-width: 60px;
+    }
+
+    .drum-grid {
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(12px, 1fr));
+      grid-template-rows: repeat(4, 16px);
+      gap: 3px;
+      max-width: 120px; /* narrower blocks */
+    }
+
+    .drum-cell {
+      border-radius: 2px;
+      border: 1px solid #979797;
+      background: #ffffff;
+      box-sizing: border-box;
+      cursor: pointer;
+      transition: background 90ms ease, border-color 90ms ease, transform 90ms ease;
+    }
+
+    .drum-cell.active {
+      background: #111111;
+      border-color: #111111;
+      transform: translateY(1px);
+    }
+
+    .ringer-note {
+      font-size: 11px;
+      font-style: italic;
+      color: rgba(0, 0, 0, 0.55);
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+
+    .email {
+      margin-top: 12px;
+    }
+
+    .email a {
+      font-size: 16px;
+      color: #111111;
+      text-decoration: none;
+      border-bottom: 1px solid #11111133;
+      padding-bottom: 2px;
+    }
+
+    .email a:hover {
+      opacity: 0.6;
+    }
+
+    .cursor-trail {
+      position: fixed;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.1);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      filter: blur(5px);
+      animation: trailFade 0.7s ease-out forwards;
+      z-index: 10;
+    }
+
+    @keyframes trailFade {
+      0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.7); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="center-shell">
+    <div class="container">
+      <!-- logo -->
+      <div class="logo-shell">
+        <img class="logo" src="crushh-logo-rust-tp.png" alt="crushh logo" />
+      </div>
+
+      <!-- synth piano -->
+      <div class="synth">
+        <div class="scale-selectors">
+          <select class="scale-selector" id="scale-root">
+            <option value="C">C</option>
+            <option value="C#">C#</option>
+            <option value="D">D</option>
+            <option value="D#">D#</option>
+            <option value="E">E</option>
+            <option value="F">F</option>
+            <option value="F#">F#</option>
+            <option value="G">G</option>
+            <option value="G#">G#</option>
+            <option value="A" selected>A</option>
+            <option value="A#">A#</option>
+            <option value="B">B</option>
+          </select>
+          <select class="scale-selector" id="scale-mode">
+            <option value="major" selected>maj</option>
+            <option value="minor">min</option>
+          </select>
+        </div>
+        <div class="octave-controls">
+          <button class="octave-button" id="octave-up">↑</button>
+          <button class="octave-button" id="octave-down">↓</button>
+        </div>
+        <div class="piano">
+          <div class="white-keys">
+            <button class="key white" data-note="C1"></button>
+            <button class="key white" data-note="D1"></button>
+            <button class="key white" data-note="E1"></button>
+            <button class="key white" data-note="F1"></button>
+            <button class="key white" data-note="G1"></button>
+            <button class="key white" data-note="A1"></button>
+            <button class="key white" data-note="B1"></button>
+            <button class="key white" data-note="C2"></button>
+          </div>
+          <div class="black-keys">
+            <button class="key black csharp" data-note="C#1"></button>
+            <button class="key black dsharp" data-note="D#1"></button>
+            <button class="key black fsharp" data-note="F#1"></button>
+            <button class="key black gsharp" data-note="G#1"></button>
+            <button class="key black asharp" data-note="A#1"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ringer-note"><em>ringer must be on to play</em></div>
+
+      <!-- 16 quarter-note dots for 4 bars -->
+      <div class="step-indicator" id="step-indicator"></div>
+
+      <!-- recorder controls -->
+      <div class="seq-controls">
+        <button class="seq-button" id="seq-record">rec synth</button>
+      </div>
+
+      <!-- transport -->
+      <div class="transport">
+        <button class="transport-button" id="transport-play">play</button>
+        <button class="transport-button" id="transport-stop">stop</button>
+        <button class="tooltip-button" id="tooltip-button">?</button>
+      </div>
+
+      <!-- drums -->
+      <div class="drums">
+        <div class="drum-lane" data-part="kick">
+          <div class="drum-header">
+            <button class="drum-button" data-part="kick">m</button>
+            <select class="drum-select" data-part="kick">
+              <option value="1">kick 1</option>
+              <option value="2">kick 2</option>
+              <option value="3">kick 3</option>
+              <option value="4">kick 4</option>
+            </select>
+          </div>
+          <div class="drum-grid" data-part="kick"></div>
+        </div>
+
+        <div class="drum-lane" data-part="snare">
+          <div class="drum-header">
+            <button class="drum-button" data-part="snare">m</button>
+            <select class="drum-select" data-part="snare">
+              <option value="1">snare 1</option>
+              <option value="2">snare 2</option>
+              <option value="3">snare 3</option>
+              <option value="4">snare 4</option>
+            </select>
+          </div>
+          <div class="drum-grid" data-part="snare"></div>
+        </div>
+
+        <div class="drum-lane" data-part="ch">
+          <div class="drum-header">
+            <button class="drum-button" data-part="ch">m</button>
+            <select class="drum-select" data-part="ch">
+              <option value="1">ch 1</option>
+              <option value="2">ch 2</option>
+              <option value="3">ch 3</option>
+              <option value="4">ch 4</option>
+            </select>
+          </div>
+          <div class="drum-grid" data-part="ch"></div>
+        </div>
+
+        <div class="drum-lane" data-part="oh">
+          <div class="drum-header">
+            <button class="drum-button" data-part="oh">m</button>
+            <select class="drum-select" data-part="oh">
+              <option value="1">oh 1</option>
+              <option value="2">oh 2</option>
+              <option value="3">oh 3</option>
+              <option value="4">oh 4</option>
+            </select>
+          </div>
+          <div class="drum-grid" data-part="oh"></div>
+        </div>
+
+        <div class="drum-lane" data-part="perc">
+          <div class="drum-header">
+            <button class="drum-button" data-part="perc">m</button>
+            <select class="drum-select" data-part="perc">
+              <option value="1">perc 1</option>
+              <option value="2">perc 2</option>
+              <option value="3">perc 3</option>
+              <option value="4">perc 4</option>
+            </select>
+          </div>
+          <div class="drum-grid" data-part="perc"></div>
+        </div>
+      </div>
+
+      <div class="email">
+        <a href="mailto:contact@crushh.la">contact@crushh.la</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tooltip Dialogue -->
+  <div class="tooltip-overlay" id="tooltip-overlay"></div>
+  <div class="tooltip-dialogue" id="tooltip-dialogue">
+    <button class="tooltip-close" id="tooltip-close">×</button>
+    <p>This is a playable saw wave synthesizer running on a 64 step sequencer. There are also 5 unique drum sequencers with 16 steps each. You can choose from 4 drum sounds within each sequencer. The "m" buttons are part mutes. The "play" button always restarts the sequence at bar 1.1. The "rec synth" button will record a played synth sequence, and will always start recording from bar 1.1 and automatically stop at bar 4.4. If the sequencer is playing while you hit "rec synth", the recording will wait until bar 4.1 to count you in 4 counts to start recording on bar 1.1 Have fun!</p>
+  </div>
+
+  <script>
+    // --- iOS SUPER FIX: PRE-WARM AUDIO CONTEXT WITH A SILENT CLICK ---
+    let iosAudioUnlocked = false;
+    let audioCtx = null;
+
+    function initAudioCtx() {
+      if (!audioCtx) {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return;
+        audioCtx = new Ctor();
+      }
+    }
+
+    function unlockIOSAudio() {
+      initAudioCtx();
+      if (!audioCtx || iosAudioUnlocked) return;
+      iosAudioUnlocked = true;
+      try {
+        const buffer = audioCtx.createBuffer(1, 1, 44100);
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0);
+      } catch (e) {
+        console.error("iOS unlock error:", e);
+      }
+    }
+
+    ["touchstart", "touchend", "mousedown"].forEach((evt) => {
+      window.addEventListener(
+        evt,
+        () => {
+          initAudioCtx();
+          if (!audioCtx) return;
+          if (audioCtx.state !== "running") {
+            audioCtx.resume().then(unlockIOSAudio).catch(() => {});
+          } else {
+            unlockIOSAudio();
+          }
+        },
+        { passive: true }
+      );
+    });
+
+    // Crash + flicker logic for logo
+    document.addEventListener("DOMContentLoaded", () => {
+      const logo = document.querySelector(".logo");
+      const shell = document.querySelector(".logo-shell");
+      if (!logo || !shell) return;
+
+      const shouldCrash = sessionStorage.getItem("crushhCrash") === "1";
+      let glitchStarted = false;
+
+      function startGlitch() {
+        if (glitchStarted) return;
+        glitchStarted = true;
+
+        function doGlitch() {
+          const intensity = Math.random();
+          const maxOffset = 3;
+          const maxSkew = 3;
+
+          const dx = (Math.random() - 0.5) * maxOffset * intensity;
+          const dy = (Math.random() - 0.5) * maxOffset * intensity;
+          const skewX = (Math.random() - 0.5) * maxSkew * intensity;
+          const opacity = 0.85 + Math.random() * 0.15;
+
+          logo.style.transition =
+            "transform 90ms ease-out, opacity 90ms ease-out, filter 90ms ease-out";
+          logo.style.opacity = opacity.toString();
+          logo.style.transform = `translate(${dx}px, ${dy}px) skewX(${skewX}deg)`;
+          logo.style.filter =
+            `contrast(${1.1 + intensity * 0.4}) saturate(${1 + intensity * 0.3})`;
+
+          const resetDelay = 140 + Math.random() * 120;
+          setTimeout(() => {
+            logo.style.transform = "translate(0, 0) skewX(0deg)";
+            logo.style.opacity = "1";
+            logo.style.filter = "none";
+          }, resetDelay);
+        }
+
+        function scheduleGlitch() {
+          const delay = 320 + Math.random() * 720;
+          setTimeout(() => {
+            doGlitch();
+            scheduleGlitch();
+          }, delay);
+        }
+
+        scheduleGlitch();
+      }
+
+      if (shouldCrash) {
+        sessionStorage.removeItem("crushhCrash");
+
+        shell.style.opacity = "0";
+        shell.style.transform = "translateZ(950px) scale(2.9) rotateX(16deg)";
+        shell.style.filter = "blur(12px) contrast(1.35)";
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            shell.classList.add("crash-in");
+          });
+        });
+
+        shell.addEventListener(
+          "animationend",
+          () => {
+            shell.classList.remove("crash-in");
+            shell.style.opacity = "1";
+            shell.style.transform = "translateZ(0)";
+            shell.style.filter = "none";
+            startGlitch();
+          },
+          { once: true }
+        );
+      } else {
+        shell.classList.add("normal-in");
+        setTimeout(() => {
+          startGlitch();
+        }, 2600);
+      }
+    });
+
+    // Synth, drums, transport + sequencer
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!window.AudioContext && !window.webkitAudioContext) {
+        console.warn("Web Audio API not supported in this browser.");
+        return;
+      }
+
+      // --- GLOBAL TRANSPORT ---
+      const BPM = 130;
+      const BEAT_DUR = 60 / BPM;       // seconds per beat
+      const BARS = 4;
+      const BEATS_PER_BAR = 4;
+      const LOOP_BEATS = BARS * BEATS_PER_BAR; // 16
+      const STEPS_PER_BAR = 16;        // 16ths in one bar
+      const TOTAL_STEPS = STEPS_PER_BAR * BARS; // 64
+      const STEP_DUR = BEAT_DUR / 4;   // 16th note
+
+      let transportStartTime = null;
+      let transportRunning = false;
+      let stepTimer = null;
+      let globalStepCounter = 0;
+      let nextStepTime = 0;
+      let lastQuarterVisual = null;
+
+      function getAudio() {
+        initAudioCtx();
+        if (!audioCtx) return null;
+        if (audioCtx.state !== "running") {
+          try { audioCtx.resume(); } catch (e) {}
+        }
+        return audioCtx;
+      }
+
+      function getLoopPositionBeats(time) {
+        if (transportStartTime === null) return 0;
+        const elapsed = Math.max(0, time - transportStartTime);
+        const loopDurSec = LOOP_BEATS * BEAT_DUR;
+        const beats = elapsed / BEAT_DUR;
+        return ((beats % LOOP_BEATS) + LOOP_BEATS) % LOOP_BEATS;
+      }
+
+      function timeToGlobalStep(time) {
+        if (transportStartTime === null) return 0;
+        const elapsed = Math.max(0, time - transportStartTime);
+        const stepFloat = elapsed / STEP_DUR;
+        return Math.round(stepFloat);
+      }
+
+      function startTransport() {
+        const ctx = getAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        transportStartTime = now + 0.15;
+        transportRunning = true;
+
+        // Start at step 0, schedule it at transportStartTime
+        globalStepCounter = 0;
+        nextStepTime = transportStartTime;
+        lastQuarterVisual = null;
+
+        if (!stepTimer) {
+          stepTimer = setInterval(() => {
+            const c = getAudio();
+            if (!c || !transportRunning) return;
+            const now2 = c.currentTime;
+            const lookahead = 0.1;
+
+            while (nextStepTime <= now2 + lookahead) {
+              const localStep = globalStepCounter % TOTAL_STEPS;
+
+              // visual 16 quarter notes over 4 bars
+              if (stepDots.length) {
+                const quarterIndex = Math.floor(localStep / 4); // 0..15
+                if (quarterIndex !== lastQuarterVisual) {
+                  stepDots.forEach((dot, idx) => {
+                    dot.classList.toggle("active", idx === quarterIndex);
+                  });
+                  lastQuarterVisual = quarterIndex;
+                }
+              }
+
+              // schedule drums & synth notes for this step
+              scheduleDrumsForStep(localStep, nextStepTime);
+              scheduleSynthForStep(localStep, nextStepTime);
+
+              // Increment AFTER scheduling so step 0 plays at transportStartTime
+              globalStepCounter++;
+              nextStepTime += STEP_DUR;
+            }
+          }, 25);
+        }
+      }
+
+      function stopTransport() {
+        transportRunning = false;
+        if (stepTimer) {
+          clearInterval(stepTimer);
+          stepTimer = null;
+        }
+        lastQuarterVisual = null;
+        globalStepCounter = 0;
+        if (stepDots.length) {
+          stepDots.forEach(dot => dot.classList.remove("active"));
+        }
+        // Clear sequencer voice when transport stops
+        sequencerVoice = null;
+        lastSequencerFreq = null;
+      }
+
+      // --- SCALE: Dynamic scale system ---
+      const noteFreq = {
+        C1: 32.70,
+        "C#1": 34.65,
+        D1: 36.71,
+        "D#1": 38.89,
+        E1: 41.20,
+        F1: 43.65,
+        "F#1": 46.25,
+        G1: 49.00,
+        "G#1": 51.91,
+        A1: 55.00,
+        "A#1": 58.27,
+        B1: 61.74,
+        C2: 65.41
+      };
+
+      const keyboardOrder = [
+        "C1","C#1","D1","D#1","E1","F1","F#1","G1","G#1","A1","A#1","B1","C2"
+      ];
+
+      // Scale intervals: major and minor
+      const scaleIntervals = {
+        major: [0, 2, 4, 5, 7, 9, 11], // W-W-H-W-W-W-H (whole, whole, half, whole, whole, whole, half)
+        minor: [0, 2, 3, 5, 7, 8, 10]  // W-H-W-W-H-W-W (natural minor)
+      };
+
+      // Map root names to semitone offsets from C
+      const rootOffsets = {
+        "C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5,
+        "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11
+      };
+
+      // Current scale settings (default: A Major)
+      let currentScaleRoot = "A";
+      let currentScaleMode = "major";
+      let scaleMap = {};
+
+      // Function to generate scale notes based on root and mode
+      function generateScaleNotes(root, mode) {
+        const rootOffset = rootOffsets[root];
+        const intervals = scaleIntervals[mode];
+        const scaleNotes = [];
+        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        
+        // Generate scale degrees (semitone values relative to root, modulo 12)
+        const scaleSemitones = intervals.map(interval => (rootOffset + interval) % 12);
+        
+        // Find all notes in keyboardOrder that match any scale degree
+        keyboardOrder.forEach(note => {
+          // Extract note name and octave
+          const noteMatch = note.match(/^([A-G]#?)(\d)$/);
+          if (!noteMatch) return;
+          
+          const noteName = noteMatch[1];
+          const semitone = rootOffsets[noteName];
+          
+          // Check if this note's semitone value matches any scale degree
+          if (scaleSemitones.includes(semitone)) {
+            scaleNotes.push(note);
+          }
+        });
+        
+        return scaleNotes;
+      }
+
+      // Function to update scaleMap based on current root and mode
+      function updateScaleMap() {
+        const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
+        const scaleSet = new Set(scaleNotes);
+        scaleMap = {};
+        
+        keyboardOrder.forEach((note, idx) => {
+          if (scaleSet.has(note)) {
+            scaleMap[note] = note;
+          } else {
+            // Find nearest scale note
+            let best = null;
+            let bestDist = Infinity;
+            scaleNotes.forEach((n) => {
+              const j = keyboardOrder.indexOf(n);
+              if (j === -1) return;
+              const d = Math.abs(j - idx);
+              if (d < bestDist) {
+                bestDist = d;
+                best = n;
+              }
+            });
+            scaleMap[note] = best || note;
+          }
+        });
+      }
+
+      // Initialize with A Major (current default)
+      updateScaleMap();
+
+      // Add event listeners for scale selectors
+      const scaleRootSelect = document.getElementById("scale-root");
+      const scaleModeSelect = document.getElementById("scale-mode");
+      
+      if (scaleRootSelect) {
+        scaleRootSelect.addEventListener("change", (e) => {
+          currentScaleRoot = e.target.value;
+          updateScaleMap();
+        });
+      }
+      
+      if (scaleModeSelect) {
+        scaleModeSelect.addEventListener("change", (e) => {
+          currentScaleMode = e.target.value;
+          updateScaleMap();
+        });
+      }
+
+      // Octave control buttons
+      const octaveUpBtn = document.getElementById("octave-up");
+      const octaveDownBtn = document.getElementById("octave-down");
+      
+      if (octaveUpBtn) {
+        octaveUpBtn.addEventListener("click", () => {
+          octaveOffset = Math.min(octaveOffset + 1, 2); // Limit to +2 octaves
+        });
+      }
+      
+      if (octaveDownBtn) {
+        octaveDownBtn.addEventListener("click", () => {
+          octaveOffset = Math.max(octaveOffset - 1, -2); // Limit to -2 octaves
+        });
+      }
+
+      function createDistortionCurve(amount) {
+        const k = typeof amount === "number" ? amount : 1;
+        const n = 44100;
+        const curve = new Float32Array(n);
+        let x;
+        const norm = Math.tanh(k);
+        for (let i = 0; i < n; ++i) {
+          x = (i * 2) / n - 1;
+          curve[i] = Math.tanh(k * x) / norm;
+        }
+        return curve;
+      }
+
+      // Metronome for recording - plays during entire 4-bar recording
+      let metronomeMasterGain = null; // Master gain node to control all metronome clicks
+      
+      function playMetronomeClick(when, volume = 0.35) {
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Create a short click sound using a brief sine wave burst
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1000, when); // 1kHz click
+        
+        gain.gain.setValueAtTime(0, when);
+        gain.gain.linearRampToValueAtTime(volume, when + 0.001);
+        gain.gain.exponentialRampToValueAtTime(0.001, when + 0.01);
+        gain.gain.setValueAtTime(0, when + 0.02);
+        
+        osc.connect(gain);
+        // Connect through master gain node if it exists, otherwise direct to destination
+        if (metronomeMasterGain) {
+          gain.connect(metronomeMasterGain);
+        } else {
+          gain.connect(ctx.destination);
+        }
+        
+        osc.start(when);
+        osc.stop(when + 0.02);
+      }
+      
+      function startRecordingMetronome(startTime, endTime) {
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Stop any existing metronome
+        stopRecordingMetronome();
+        
+        // Create master gain node for metronome (allows muting when stopped)
+        metronomeMasterGain = ctx.createGain();
+        metronomeMasterGain.gain.setValueAtTime(1, ctx.currentTime);
+        metronomeMasterGain.connect(ctx.destination);
+        
+        // Calculate all beat times during recording (16 beats = 4 bars)
+        const beatTimes = [];
+        for (let i = 0; i < LOOP_BEATS; i++) {
+          beatTimes.push(startTime + i * BEAT_DUR);
+        }
+        
+        // Schedule all metronome clicks
+        const now = ctx.currentTime;
+        beatTimes.forEach(beatTime => {
+          if (beatTime >= now && beatTime <= endTime) {
+            playMetronomeClick(beatTime, 0.35);
+          }
+        });
+      }
+      
+      function stopRecordingMetronome() {
+        // Mute the master gain node to stop all metronome clicks
+        if (metronomeMasterGain) {
+          const ctx = getAudio();
+          if (ctx) {
+            const now = ctx.currentTime;
+            metronomeMasterGain.gain.setValueAtTime(0, now);
+            // Disconnect and clear after a short delay
+            setTimeout(() => {
+              if (metronomeMasterGain) {
+                try {
+                  metronomeMasterGain.disconnect();
+                } catch (e) {}
+                metronomeMasterGain = null;
+              }
+            }, 100);
+          }
+        }
+      }
+
+      // --- LIVE SYNTH VOICE (monophonic) ---
+      let currentVoice = null;
+      const glideTime = 0.16; // Portamento time (160ms to match Serum 2)
+      let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
+
+      function startOrGlideToNote(rawNote) {
+        const mapped = scaleMap[rawNote] || rawNote;
+        let freq = noteFreq[mapped];
+        if (!freq) return;
+        
+        // Apply octave offset (multiply by 2 for each octave up, divide for each octave down)
+        if (octaveOffset !== 0) {
+          freq = freq * Math.pow(2, octaveOffset);
+        }
+
+        const ctx = getAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        if (!currentVoice) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const distortion = ctx.createWaveShaper();
+
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(freq, now);
+
+          distortion.curve = createDistortionCurve(4);
+          distortion.oversample = "2x";
+
+          gain.gain.setValueAtTime(0, now);
+          gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+
+          osc.connect(distortion);
+          distortion.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now);
+
+          currentVoice = { osc, gain };
+        } else {
+          const { osc } = currentVoice;
+          osc.frequency.cancelScheduledValues(now);
+          const currentFreq = osc.frequency.value;
+          osc.frequency.setValueAtTime(currentFreq, now);
+          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+        }
+      }
+
+      function stopCurrentVoice() {
+        if (!currentVoice) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const { osc, gain } = currentVoice;
+
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.06);
+
+        osc.stop(now + 0.07);
+        currentVoice = null;
+      }
+
+      // --- DRUMS: one-shots, 1-bar patterns ---
+      const drumParts = ["kick","snare","ch","oh","perc"];
+      const drumFiles = {
+        kick: ["sounds2/Kick1.wav","sounds2/Kick2.wav","sounds2/Kick3.wav","sounds2/Kick4.wav"],
+        snare:["sounds2/Snare1.wav","sounds2/Snare2.wav","sounds2/Snare3.wav","sounds2/Snare4.wav"],
+        ch:   ["sounds2/CH1.wav","sounds2/CH2.wav","sounds2/CH3.wav","sounds2/CH4.wav"],
+        oh:   ["sounds2/OH1.wav","sounds2/OH2.wav","sounds2/OH3.wav","sounds2/OH4.wav"],
+        perc: ["sounds2/Perc1.wav","sounds2/Perc2.wav","sounds2/Perc3.wav","sounds2/Perc4.wav"]
+      };
+
+      let drumBuffers = {
+        kick: [null,null,null,null],
+        snare:[null,null,null,null],
+        ch:   [null,null,null,null],
+        oh:   [null,null,null,null],
+        perc: [null,null,null,null]
+      };
+
+      let drumLoaded = false;
+      let drumLoading = false;
+
+      const drumPatterns = {
+        kick: new Array(16).fill(false),
+        snare:new Array(16).fill(false),
+        ch:   new Array(16).fill(false),
+        oh:   new Array(16).fill(false),
+        perc: new Array(16).fill(false)
+      };
+
+      const drumMuted = {
+        kick: false,
+        snare:false,
+        ch:   false,
+        oh:   false,
+        perc: false
+      };
+
+      const drumVariantIndex = {
+        kick: 0,
+        snare:0,
+        ch:   0,
+        oh:   0,
+        perc: 0
+      };
+
+      async function loadDrumBuffers(ctx) {
+        if (drumLoaded || drumLoading) return;
+        drumLoading = true;
+        try {
+          for (const part of drumParts) {
+            const urls = drumFiles[part];
+            for (let i = 0; i < urls.length; i++) {
+              const res = await fetch(urls[i]);
+              const arr = await res.arrayBuffer();
+              drumBuffers[part][i] = await ctx.decodeAudioData(arr);
+            }
+          }
+          drumLoaded = true;
+        } catch (e) {
+          console.warn("Error loading drum one-shots:", e);
+        } finally {
+          drumLoading = false;
+        }
+      }
+
+      function scheduleDrumsForStep(globalStep, when) {
+        if (!drumLoaded) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+
+        // drums: 1-bar 16-step pattern, repeating across 4 bars
+        const localStep = globalStep % 16;
+
+        for (const part of drumParts) {
+          if (drumMuted[part]) continue;
+          if (!drumPatterns[part][localStep]) continue;
+
+          const variant = drumVariantIndex[part] || 0;
+          const buffer = drumBuffers[part][variant];
+          if (!buffer) continue;
+
+          const src = ctx.createBufferSource();
+          const gain = ctx.createGain();
+
+          src.buffer = buffer;
+          gain.gain.setValueAtTime(0.4, when); // medium volume
+
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(when);
+        }
+      }
+
+      // --- SYNTH SEQUENCER (64-step mono pattern) ---
+      let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSeconds} - start quantized to 16ths, duration preserved
+      let savedSynthPattern = null; // Saved pattern that persists after stop until new recording
+      let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
+      let recStartTime = null;
+      let recEndTime = null;
+      let recStartGlobalStep = 0;
+      let pendingNotes = {}; // mappedNote -> { startGlobalStep }
+      let currentRecordedNote = null;
+      
+      // Sequencer voice for portamento (separate from live voice)
+      let sequencerVoice = null;
+      let lastSequencerFreq = null; // Track last frequency for always-on portamento
+
+      function scheduleSynthForStep(globalStep, when) {
+        if (recState !== "playing") return;
+        const localStep = globalStep % TOTAL_STEPS;
+        const evt = synthPattern[localStep];
+        if (!evt) return;
+
+        // Use precise duration if available, otherwise fall back to step-based (for backwards compatibility)
+        const duration = evt.lengthSeconds !== undefined 
+          ? evt.lengthSeconds 
+          : (evt.lengthSteps * STEP_DUR);
+        
+        // Check for next note to determine if we should extend this note (Serum 2 mono portamento style)
+        // In mono portamento mode, we want continuous sound with no gaps
+        const nextStep = (localStep + 1) % TOTAL_STEPS;
+        const nextEvt = synthPattern[nextStep];
+        const hasNextNote = nextEvt !== null;
+        
+        // Calculate timing
+        const noteEndTime = when + duration;
+        const nextNoteStartTime = when + STEP_DUR;
+        const gap = nextNoteStartTime - noteEndTime;
+        
+        // If there's a next note and a gap, we need to extend this note to eliminate the gap
+        // This creates the continuous, tied-together sound of Serum 2 mono portamento
+        let adjustedDuration = duration;
+        if (hasNextNote && gap > 0) {
+          // Extend this note to connect seamlessly to the next note
+          // This ensures no gaps in the continuous voice
+          adjustedDuration = duration + gap;
+        }
+        
+        // Always pass as legato if there's a next note (for continuous voice)
+        const isLegato = hasNextNote;
+        
+        // Pass to triggerSeqNote - use adjusted duration to eliminate gaps
+        triggerSeqNote(evt.note, adjustedDuration, when, isLegato);
+      }
+
+      function triggerSeqNote(noteName, durationSeconds, startTime, isLegato = false) {
+        const mapped = scaleMap[noteName] || noteName;
+        let freq = noteFreq[mapped];
+        if (!freq) return;
+        
+        // Apply octave offset (multiply by 2 for each octave up, divide for each octave down)
+        if (octaveOffset !== 0) {
+          freq = freq * Math.pow(2, octaveOffset);
+        }
+        const ctx = getAudio();
+        if (!ctx) return;
+
+        const t0 = Math.max(startTime, ctx.currentTime);
+        const now = ctx.currentTime;
+
+        // Use exact duration - no quantization or rounding
+        const total = Math.max(0.01, durationSeconds);
+
+        // Serum 2 style monophonic portamento:
+        // - Always maintain one continuous voice (never silence)
+        // - If there's any active voice or recently ended voice, reuse it
+        // - Only change frequency, don't retrigger envelope for legato notes
+        // - Always glide from current/last frequency
+        
+        let startFreq = freq;
+        let voiceIsActive = false;
+        const legatoWindow = 0.1; // 100ms window for legato (generous for continuous voice)
+        
+        // Check if we have an active voice or a recently ended voice
+        // In mono portamento mode, we want to maintain continuous sound
+        if (sequencerVoice && sequencerVoice.osc) {
+          if (sequencerVoice.noteEndTime > now) {
+            // Voice is still playing - definitely legato
+            voiceIsActive = true;
+            startFreq = sequencerVoice.osc.frequency.value;
+            isLegato = true;
+          } else {
+            // Voice just ended - check if within legato window
+            const timeSinceEnd = now - sequencerVoice.noteEndTime;
+            if (timeSinceEnd <= legatoWindow && lastSequencerFreq !== null) {
+              // Within legato window - reactivate voice for seamless connection
+              voiceIsActive = true;
+              startFreq = lastSequencerFreq;
+              isLegato = true;
+            } else if (lastSequencerFreq !== null) {
+              // Outside legato window but still glide from last frequency (portamento always on)
+              startFreq = lastSequencerFreq;
+            }
+          }
+        } else if (lastSequencerFreq !== null) {
+          // No active voice, but we have last frequency - always glide from it (portamento always on)
+          startFreq = lastSequencerFreq;
+        }
+
+        // Serum 2 style: If voice is active (legato), reuse it - only change frequency, maintain envelope
+        // This creates the continuous, tied-together sound with no gaps
+        if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
+          const { osc, gain } = sequencerVoice;
+          
+          // Get current frequency and gain values
+          const currentFreq = osc.frequency.value;
+          const currentGain = gain.gain.value;
+          
+          // Cancel any scheduled frequency changes
+          osc.frequency.cancelScheduledValues(now);
+          
+          // Set current frequency to prevent clicks
+          osc.frequency.setValueAtTime(currentFreq, now);
+          
+          // Smooth glide to new frequency (Serum 2 portamento - 160ms)
+          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          
+          // Update the sequencer voice to track the new note
+          sequencerVoice.currentFreq = freq;
+          sequencerVoice.noteEndTime = t0 + total;
+          lastSequencerFreq = freq;
+          
+          // For legato notes: DON'T retrigger envelope - maintain current level
+          // This is key to Serum 2 behavior - envelope only retriggers on non-legato notes
+          // Maintain sustain to prevent gaps in the continuous voice
+          const sustainLevel = 0.22;
+          const release = 0.08;
+          
+          // Always maintain sustain for legato notes (which should be most notes in mono portamento)
+          if (isLegato) {
+            // Legato: maintain current gain level, don't retrigger envelope
+            // Keep sustain level throughout to prevent gaps
+            gain.gain.cancelScheduledValues(now);
+            gain.gain.setValueAtTime(currentGain, now);
+            // Maintain sustain level throughout, release only at end
+            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            gain.gain.linearRampToValueAtTime(0, t0 + total);
+          } else {
+            // Non-legato: still maintain if in sustain to prevent gaps
+            if (currentGain >= sustainLevel * 0.5) {
+              // Already in sustain or decay - maintain it to prevent gaps
+              gain.gain.cancelScheduledValues(now);
+              gain.gain.setValueAtTime(sustainLevel, now);
+              gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+              gain.gain.linearRampToValueAtTime(0, t0 + total);
+            } else {
+              // Voice was fading - bring it back to sustain to prevent gaps
+              gain.gain.cancelScheduledValues(now);
+              gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
+              gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+              gain.gain.linearRampToValueAtTime(0, t0 + total);
+            }
+          }
+          
+          // Schedule oscillator stop for the new note's end time
+          osc.stop(t0 + total + 0.05);
+          return;
+        }
+
+        // No existing active voice - create new one
+        // Always start from last frequency if available (Serum 2 always glides)
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const distortion = ctx.createWaveShaper();
+
+        osc.type = "sawtooth";
+        
+        // Always glide from last frequency to new frequency (Serum 2 portamento behavior)
+        // Even for non-legato notes, there's always a glide
+        if (startFreq !== freq && startFreq !== null) {
+          osc.frequency.setValueAtTime(startFreq, t0);
+          osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
+        } else {
+          osc.frequency.setValueAtTime(freq, t0);
+        }
+
+        distortion.curve = createDistortionCurve(4);
+        distortion.oversample = "2x";
+
+        const attack = 0.02;
+        const decay = 0.06;
+        const sustainLevel = 0.22;
+        const release = 0.08;
+        const sustainTime = Math.max(0, total - (attack + decay + release));
+
+        // Normal envelope for new notes (non-legato)
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.23, t0 + attack);
+        gain.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + decay);
+        gain.gain.setValueAtTime(sustainLevel, t0 + attack + decay + sustainTime);
+        gain.gain.linearRampToValueAtTime(0, t0 + total);
+
+        osc.connect(distortion);
+        distortion.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t0);
+        osc.stop(t0 + total + 0.05);
+        
+        // Store the sequencer voice for portamento
+        sequencerVoice = { osc, gain, currentFreq: freq, noteEndTime: t0 + total };
+        lastSequencerFreq = freq;
+        
+        // Clean up when note ends, but keep last frequency for next note
+        setTimeout(() => {
+          if (sequencerVoice && sequencerVoice.osc === osc) {
+            sequencerVoice = null;
+            // Keep lastSequencerFreq for always-on portamento (Serum 2 behavior)
+          }
+        }, (total + 0.05) * 1000);
+      }
+
+      function recordNoteOn(mappedNote) {
+        if (recState !== "recording") return;
+        const ctx = getAudio();
+        if (!ctx || recStartTime === null || recEndTime === null) return;
+
+        const now = ctx.currentTime;
+        
+        // If note is played slightly before 1.1, carry it over to start at 1.1
+        // Allow very generous tolerance (up to 75% of a step before) to capture early notes
+        // This ensures notes played slightly early are always captured at beat 1.1
+        let noteStartTime = now;
+        if (now < recStartTime) {
+          // Note played before recording start - carry it over to start at 1.1
+          // Use 75% of a step (~87ms at 130 BPM) for maximum tolerance
+          const earlyTolerance = STEP_DUR * 0.75;
+          if (now >= recStartTime - earlyTolerance) {
+            noteStartTime = recStartTime;
+          } else {
+            return; // Too early, ignore
+          }
+        }
+        
+        // Don't record notes after recording end
+        if (noteStartTime > recEndTime) return;
+
+        // monophonic: close any pending notes first
+        Object.keys(pendingNotes).forEach(existing => {
+          recordNoteOff(existing);
+        });
+
+        // Calculate time relative to recStartTime for step calculation
+        // Since we carried over early notes to recStartTime, elapsed will be 0 or positive
+        const elapsedFromRecStart = noteStartTime - recStartTime;
+        
+        // FOOLPROOF BEAT 1.1 CAPTURE: Use a very generous window for step 0 (beat 1.1)
+        // If note is within 75% of a step from recStartTime, force it to step 0
+        // This ensures beat 1.1 is ALWAYS captured, even with timing variations
+        const step0Threshold = STEP_DUR * 0.75; // ~87ms at 130 BPM - very generous window
+        
+        let localStart;
+        if (elapsedFromRecStart <= step0Threshold) {
+          // Force to step 0 (beat 1.1) for any note near the start
+          localStart = 0;
+        } else {
+          // Use 16th note quantization (full resolution) to preserve all 16th note positions
+          // This prevents doubling that was caused by 8th note quantization
+          const stepFloat = elapsedFromRecStart / STEP_DUR;
+          localStart = Math.round(stepFloat); // Snap to nearest 16th note step
+        }
+        
+        // Clamp to valid range (shouldn't be needed with the logic above, but safety check)
+        if (localStart < 0) localStart = 0;
+        if (localStart >= TOTAL_STEPS) localStart = TOTAL_STEPS - 1;
+
+        // Store quantized start step AND actual start time for precise duration calculation
+        // Use noteStartTime (which may be recStartTime if note was early) for duration calc
+        const globalStepNow = timeToGlobalStep(noteStartTime);
+        pendingNotes[mappedNote] = { 
+          startGlobalStep: globalStepNow, 
+          localStart,
+          actualStartTime: noteStartTime  // Use adjusted start time (carried over to 1.1 if early)
+        };
+      }
+
+      function recordNoteOff(mappedNote) {
+        if (recState !== "recording") return;
+        const ctx = getAudio();
+        if (!ctx || recStartTime === null || recEndTime === null) return;
+        const data = pendingNotes[mappedNote];
+        if (!data) return;
+
+        const now = ctx.currentTime;
+        // Clamp note off time to not extend past recEndTime (bar 1.1 after 4 bars)
+        const clamped = Math.max(recStartTime, Math.min(now, recEndTime));
+        
+        // Calculate actual duration in seconds (not quantized), but ensure it doesn't extend past loop boundary
+        const actualDuration = Math.max(0, clamped - data.actualStartTime);
+        
+        // Only quantize the START position, preserve actual duration
+        if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+          // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+          const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+          const clampedDuration = Math.min(actualDuration, maxDuration);
+          
+          // Store duration as seconds (can be converted to steps when needed, but preserve precision)
+          synthPattern[data.localStart] = { 
+            note: mappedNote, 
+            lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+          };
+        }
+
+        delete pendingNotes[mappedNote];
+      }
+
+      function finalizeRecording() {
+        // close any held notes at loop boundary - cut off exactly at recEndTime (bar 1.1 after 4 bars)
+        const ctx = getAudio();
+        if (ctx && recEndTime !== null) {
+          Object.entries(pendingNotes).forEach(([note, data]) => {
+            // Calculate duration from actual start time to end of recording
+            // Ensure note is cut off exactly at recEndTime, not extending into next loop
+            const actualDuration = Math.max(0, recEndTime - data.actualStartTime);
+            
+            // Only record if duration is positive and within the loop bounds
+            if (actualDuration > 0 && data.localStart >= 0 && data.localStart < TOTAL_STEPS) {
+              // Ensure duration doesn't extend past the loop boundary (64 steps = 4 bars)
+              const maxDuration = (TOTAL_STEPS - data.localStart) * STEP_DUR;
+              const clampedDuration = Math.min(actualDuration, maxDuration);
+              
+              synthPattern[data.localStart] = { 
+                note, 
+                lengthSeconds: clampedDuration  // Store precise duration, clamped to loop boundary
+              };
+            }
+          });
+        }
+        pendingNotes = {};
+      }
+
+      // --- DOM: step indicator ---
+      const stepContainer = document.getElementById("step-indicator");
+      const stepDots = [];
+      if (stepContainer) {
+        for (let i = 0; i < 16; i++) {
+          const dot = document.createElement("div");
+          dot.className = "step-dot";
+          // Mark downbeats: indices 0, 4, 8, 12 (beats 1.1, 2.1, 3.1, 4.1)
+          if (i % 4 === 0) {
+            dot.classList.add("downbeat");
+          }
+          stepContainer.appendChild(dot);
+          stepDots.push(dot);
+        }
+      }
+
+      // --- DOM: drums grid & controls ---
+      const drumGrids = {};
+      const drumButtons = {};
+      const drumSelects = {};
+
+      function buildDrumGrid(part) {
+        const gridEl = document.querySelector(`.drum-grid[data-part="${part}"]`);
+        drumGrids[part] = gridEl;
+        if (!gridEl) return;
+        gridEl.innerHTML = "";
+        // 4 rows (beats), 4 cols (1/e/&/a) = 16 steps
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 4; col++) {
+            const idx = row * 4 + col; // step index 0..15
+            const cell = document.createElement("div");
+            cell.className = "drum-cell";
+            cell.dataset.step = idx.toString();
+            cell.addEventListener("click", () => {
+              const current = drumPatterns[part][idx];
+              drumPatterns[part][idx] = !current;
+              cell.classList.toggle("active", !current);
+            });
+            gridEl.appendChild(cell);
+          }
+        }
+      }
+
+      drumParts.forEach((part) => {
+        buildDrumGrid(part);
+        const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
+        if (btn) {
+          drumButtons[part] = btn;
+          // Initialize button state: white = not muted (active), black = muted
+          // active class = muted (black)
+          btn.classList.toggle("active", drumMuted[part]);
+          btn.addEventListener("click", () => {
+            drumMuted[part] = !drumMuted[part];
+            btn.classList.toggle("active", drumMuted[part]);
+          });
+        }
+        const sel = document.querySelector(`.drum-select[data-part="${part}"]`);
+        if (sel) {
+          drumSelects[part] = sel;
+          sel.addEventListener("change", () => {
+            const val = parseInt(sel.value || "1", 10);
+            drumVariantIndex[part] = Math.max(0, Math.min(3, val - 1));
+          });
+        }
+      });
+
+      // --- DOM: transport + record ---
+      const playBtn = document.getElementById("transport-play");
+      const stopBtn = document.getElementById("transport-stop");
+      const recBtn = document.getElementById("seq-record");
+
+      if (playBtn) {
+        playBtn.addEventListener("click", async () => {
+          // Set button state immediately
+          playBtn.classList.add("active");
+          if (stopBtn) stopBtn.classList.remove("active");
+          
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
+          const ctx = getAudio();
+          if (!ctx) {
+            // If audio context fails, revert button state
+            playBtn.classList.remove("active");
+            if (stopBtn) stopBtn.classList.add("active");
+            return;
+          }
+          await loadDrumBuffers(ctx);
+
+          // reset pattern playback if already running
+          stopTransport();
+          
+          // Restore saved pattern if it exists, otherwise start with empty pattern
+          if (savedSynthPattern) {
+            synthPattern = savedSynthPattern.map(step => step ? {...step} : null); // Deep copy
+            recState = "playing"; // Set to playing so the saved pattern will play
+          } else {
+            synthPattern = new Array(TOTAL_STEPS).fill(null);
+            recState = "idle";
+          }
+          
+          pendingNotes = {};
+          currentRecordedNote = null;
+          recStartTime = null;
+          recEndTime = null;
+          recBtn.classList.remove("recording","looping");
+          recBtn.textContent = "rec synth";
+
+          startTransport();
+        });
+      }
+
+      if (stopBtn) {
+        stopBtn.addEventListener("click", async () => {
+          // Set button state immediately
+          if (playBtn) playBtn.classList.remove("active");
+          stopBtn.classList.add("active");
+          
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
+          stopTransport();
+          stopRecordingMetronome(); // Stop metronome when transport stops
+          
+          // Save the current pattern before clearing (if it has content)
+          const hasPattern = synthPattern.some(step => step !== null);
+          if (hasPattern) {
+            savedSynthPattern = synthPattern.map(step => step ? {...step} : null); // Deep copy to save
+          }
+          
+          recState = "idle";
+          pendingNotes = {};
+          currentRecordedNote = null;
+          recStartTime = null;
+          recEndTime = null;
+          synthPattern = new Array(TOTAL_STEPS).fill(null);
+          if (recBtn) {
+            recBtn.classList.remove("recording","looping");
+            recBtn.textContent = "rec synth";
+          }
+        });
+      }
+
+      if (recBtn) {
+        recBtn.addEventListener("click", async () => {
+          // Cancel any current recording/playback and clear pattern
+          if (recState !== "idle") {
+            // Set button states immediately
+            recState = "idle";
+            recBtn.classList.remove("recording","looping");
+            recBtn.textContent = "rec synth";
+            stopRecordingMetronome(); // Stop metronome if recording is cancelled
+            
+            // Ensure audio context is initialized for cleanup
+            initAudioCtx();
+            if (audioCtx && audioCtx.state !== "running") {
+              try {
+                await audioCtx.resume();
+              } catch (e) {
+                console.warn("Failed to resume audio context:", e);
+              }
+            }
+            unlockIOSAudio();
+            
+            const ctx = getAudio();
+            if (ctx) {
+              finalizeRecording();
+            }
+            // Clear saved pattern when cancelling recording
+            savedSynthPattern = null;
+            synthPattern = new Array(TOTAL_STEPS).fill(null);
+            pendingNotes = {};
+            currentRecordedNote = null;
+            recStartTime = null;
+            recEndTime = null;
+            return;
+          }
+          
+          // Clear saved pattern when starting a new recording
+          savedSynthPattern = null;
+          
+          // Ensure audio context is initialized and resumed
+          initAudioCtx();
+          if (audioCtx && audioCtx.state !== "running") {
+            try {
+              await audioCtx.resume();
+            } catch (e) {
+              console.warn("Failed to resume audio context:", e);
+            }
+          }
+          unlockIOSAudio();
+          
+          const ctx = getAudio();
+          if (!ctx) return;
+          await loadDrumBuffers(ctx);
+
+          // If transport not running, start it after a 4-beat count-in.
+          if (!transportRunning) {
+            const now = ctx.currentTime;
+            const countInStart = now;
+            const countInEnd = countInStart + 4 * BEAT_DUR;
+
+            // transport start and record start at the same time, after count-in
+            transportStartTime = countInEnd;
+            transportRunning = true;
+
+            // Start at step 0, schedule it at transportStartTime
+            globalStepCounter = 0;
+            nextStepTime = transportStartTime;
+            lastQuarterVisual = null;
+
+            if (!stepTimer) {
+              stepTimer = setInterval(() => {
+                const c = getAudio();
+                if (!c || !transportRunning) return;
+                const now2 = c.currentTime;
+                const lookahead = 0.1;
+
+                while (nextStepTime <= now2 + lookahead) {
+                  const localStep = globalStepCounter % TOTAL_STEPS;
+
+                  if (stepDots.length) {
+                    const quarterIndex = Math.floor(localStep / 4);
+                    if (quarterIndex !== lastQuarterVisual) {
+                      stepDots.forEach((dot, idx) => {
+                        dot.classList.toggle("active", idx === quarterIndex);
+                      });
+                      lastQuarterVisual = quarterIndex;
+                    }
+                  }
+
+                  scheduleDrumsForStep(localStep, nextStepTime);
+                  scheduleSynthForStep(localStep, nextStepTime);
+
+                  // Increment AFTER scheduling so step 0 plays at transportStartTime
+                  globalStepCounter++;
+                  nextStepTime += STEP_DUR;
+                }
+              }, 25);
+            }
+
+            // Set button states immediately
+            if (playBtn) playBtn.classList.add("active");
+            if (stopBtn) stopBtn.classList.remove("active");
+            
+            // count-in display 4,3,2,1 with metronome clicks
+            recState = "count-in";
+            recBtn.classList.add("recording");
+            recBtn.classList.remove("looping");
+            recBtn.textContent = "4";
+
+            for (let i = 0; i < 4; i++) {
+              const displayNum = 4 - i;
+              const t = countInStart + i * BEAT_DUR;
+              const delay = Math.max(0, (t - now) * 1000);
+              
+              // Play metronome click at 35% volume
+              playMetronomeClick(t, 0.35);
+              
+              setTimeout(() => {
+                if (recState === "count-in") {
+                  recBtn.textContent = displayNum.toString();
+                }
+              }, delay);
+            }
+
+            // start recording exactly at 1.1
+            recStartTime = transportStartTime;
+            recEndTime = recStartTime + LOOP_BEATS * BEAT_DUR;
+            recStartGlobalStep = timeToGlobalStep(recStartTime);
+
+            const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
+            setTimeout(() => {
+              if (recState !== "count-in") return;
+              recState = "recording";
+              synthPattern = new Array(TOTAL_STEPS).fill(null);
+              pendingNotes = {};
+              recBtn.textContent = "rec synth*";
+              // Start metronome for entire 4-bar recording
+              startRecordingMetronome(recStartTime, recEndTime);
+            }, toRecordMs);
+
+            const toEndMs = Math.max(0, (recEndTime - now) * 1000);
+            setTimeout(() => {
+              if (recState !== "recording") return;
+              recState = "playing";
+              finalizeRecording();
+              // Save the recorded pattern
+              savedSynthPattern = synthPattern.map(step => step ? {...step} : null); // Deep copy
+              stopRecordingMetronome(); // Stop metronome when recording ends
+              recBtn.classList.remove("recording");
+              recBtn.classList.add("looping");
+              recBtn.textContent = "looping";
+            }, toEndMs);
+
+          } else {
+            // Transport is running: arm recording for NEXT full loop at 1.1
+            const now = ctx.currentTime;
+            const elapsedBeatsFloat = (now - transportStartTime) / BEAT_DUR;
+            const currentLoopIndex = Math.floor(elapsedBeatsFloat / LOOP_BEATS);
+            const recordStartLoopIndex = currentLoopIndex + 1;
+            const recordStartBeatGlobal = recordStartLoopIndex * LOOP_BEATS; // beat index from transportStart
+
+            const recStart = transportStartTime + recordStartBeatGlobal * BEAT_DUR;
+            loopDuration = LOOP_BEATS * BEAT_DUR; // 4 bars = 16 beats
+            const recEnd = recStart + loopDuration; // End exactly at next 1.1
+
+            // count-in over last 4 beats of current loop (4,3,2,1) with metronome clicks
+            recState = "count-in";
+            recBtn.classList.add("recording");
+            recBtn.classList.remove("looping");
+            recBtn.textContent = "4";
+
+            for (let i = 0; i < 4; i++) {
+              const beatIndex = recordStartBeatGlobal - (4 - i); // beats before recStart
+              const t = transportStartTime + beatIndex * BEAT_DUR;
+              const displayNum = 4 - i;
+              const delay = Math.max(0, (t - now) * 1000);
+              
+              // Play metronome click at 35% volume
+              playMetronomeClick(t, 0.35);
+              
+              setTimeout(() => {
+                if (recState === "count-in") {
+                  recBtn.textContent = displayNum.toString();
+                }
+              }, delay);
+            }
+
+            recStartTime = recStart;
+            recEndTime = recEnd;
+            recStartGlobalStep = recordStartBeatGlobal * 4; // 4 steps per beat
+
+            const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
+            setTimeout(() => {
+              if (recState !== "count-in") return;
+              recState = "recording";
+              synthPattern = new Array(TOTAL_STEPS).fill(null);
+              pendingNotes = {};
+              recBtn.textContent = "rec synth*";
+              // Start metronome for entire 4-bar recording
+              startRecordingMetronome(recStartTime, recEndTime);
+            }, toRecordMs);
+
+            const toEndMs = Math.max(0, (recEndTime - now) * 1000);
+            setTimeout(() => {
+              if (recState !== "recording") return;
+              recState = "playing";
+              finalizeRecording();
+              // Save the recorded pattern
+              savedSynthPattern = synthPattern.map(step => step ? {...step} : null); // Deep copy
+              stopRecordingMetronome(); // Stop metronome when recording ends
+              recBtn.classList.remove("recording");
+              recBtn.classList.add("looping");
+              recBtn.textContent = "looping";
+            }, toEndMs);
+          }
+        });
+      }
+
+      // --- PIANO / POINTER INPUT & RECORD HOOKS ---
+      const piano = document.querySelector(".piano");
+      const keys = document.querySelectorAll(".key[data-note]");
+      if (!piano || !keys.length) return;
+
+      let pointerDown = false;
+      let activeTouchId = null;
+      let activeKeyEl = null;
+
+      function setActiveKey(newKey) {
+        if (activeKeyEl === newKey) return;
+        if (activeKeyEl) {
+          activeKeyEl.classList.remove("is-down");
+        }
+        activeKeyEl = newKey;
+        if (activeKeyEl) {
+          activeKeyEl.classList.add("is-down");
+        }
+      }
+
+      function getKeyFromTarget(target) {
+        if (!target) return null;
+        if (target.classList && target.classList.contains("key") && target.dataset.note) {
+          return target;
+        }
+        return target.closest ? target.closest(".key[data-note]") : null;
+      }
+
+      // Mouse
+      keys.forEach((key) => {
+        key.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          pointerDown = true;
+          const rawNote = key.getAttribute("data-note");
+          if (!rawNote) return;
+          const mapped = scaleMap[rawNote] || rawNote;
+          currentRecordedNote = mapped;
+
+          setActiveKey(key);
+          if (recState === "recording") {
+            recordNoteOn(mapped);
+          }
+          startOrGlideToNote(rawNote);
+        });
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (!pointerDown) return;
+        pointerDown = false;
+        if (recState === "recording" && currentRecordedNote) {
+          recordNoteOff(currentRecordedNote);
+        }
+        currentRecordedNote = null;
+        setActiveKey(null);
+        stopCurrentVoice();
+      });
+
+      piano.addEventListener("mousemove", (e) => {
+        if (!pointerDown) return;
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const key = getKeyFromTarget(el);
+        if (!key) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
+
+        if (mapped !== currentRecordedNote) {
+          if (recState === "recording" && currentRecordedNote) {
+            recordNoteOff(currentRecordedNote);
+          }
+          if (recState === "recording") {
+            recordNoteOn(mapped);
+          }
+          currentRecordedNote = mapped;
+        }
+
+        setActiveKey(key);
+        startOrGlideToNote(rawNote);
+      });
+
+      // Touch
+      piano.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        if (activeTouchId !== null) return;
+        const touch = e.changedTouches[0];
+        activeTouchId = touch.identifier;
+        pointerDown = true;
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const key = getKeyFromTarget(el);
+        if (!key) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
+
+        currentRecordedNote = mapped;
+        setActiveKey(key);
+        if (recState === "recording") {
+          recordNoteOn(mapped);
+        }
+        startOrGlideToNote(rawNote);
+      }, { passive: false });
+
+      piano.addEventListener("touchmove", (e) => {
+        if (activeTouchId === null) return;
+        const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
+        if (!touch) return;
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const key = getKeyFromTarget(el);
+        if (!key) return;
+        const rawNote = key.getAttribute("data-note");
+        if (!rawNote) return;
+        const mapped = scaleMap[rawNote] || rawNote;
+
+        if (mapped !== currentRecordedNote) {
+          if (recState === "recording" && currentRecordedNote) {
+            recordNoteOff(currentRecordedNote);
+          }
+          if (recState === "recording") {
+            recordNoteOn(mapped);
+          }
+          currentRecordedNote = mapped;
+        }
+
+        setActiveKey(key);
+        startOrGlideToNote(rawNote);
+      }, { passive: false });
+
+      function endTouch(e) {
+        if (activeTouchId === null) return;
+        const touch = Array.from(e.changedTouches).find(t => t.identifier === activeTouchId);
+        if (!touch) return;
+        activeTouchId = null;
+        pointerDown = false;
+        if (recState === "recording" && currentRecordedNote) {
+          recordNoteOff(currentRecordedNote);
+        }
+        currentRecordedNote = null;
+        setActiveKey(null);
+        stopCurrentVoice();
+      }
+
+      piano.addEventListener("touchend", endTouch, { passive: false });
+      piano.addEventListener("touchcancel", endTouch, { passive: false });
+    });
+
+    // Drunk-vision cursor trail
+    document.addEventListener("mousemove", (e) => {
+      const trail = document.createElement("div");
+      trail.className = "cursor-trail";
+
+      trail.style.left = e.clientX + "px";
+      trail.style.top = e.clientY + "px";
+
+      const scale = 0.9 + Math.random() * 0.4;
+      trail.style.width = 14 * scale + "px";
+      trail.style.height = 14 * scale + "px";
+      trail.style.background = `rgba(0, 0, 0, ${0.08 + Math.random() * 0.07})`;
+      trail.style.filter = "blur(" + (4 + Math.random() * 3) + "px)";
+
+      document.body.appendChild(trail);
+      setTimeout(() => trail.remove(), 750);
+    });
+
+    // Tooltip functionality
+    document.addEventListener("DOMContentLoaded", () => {
+      const tooltipButton = document.getElementById("tooltip-button");
+      const tooltipDialogue = document.getElementById("tooltip-dialogue");
+      const tooltipOverlay = document.getElementById("tooltip-overlay");
+      const tooltipClose = document.getElementById("tooltip-close");
+
+      function openTooltip() {
+        tooltipDialogue.classList.add("active");
+        tooltipOverlay.classList.add("active");
+      }
+
+      function closeTooltip() {
+        tooltipDialogue.classList.remove("active");
+        tooltipOverlay.classList.remove("active");
+      }
+
+      if (tooltipButton) {
+        tooltipButton.addEventListener("click", (e) => {
+          e.preventDefault();
+          openTooltip();
+        });
+      }
+
+      if (tooltipClose) {
+        tooltipClose.addEventListener("click", (e) => {
+          e.preventDefault();
+          closeTooltip();
+        });
+      }
+
+      if (tooltipOverlay) {
+        tooltipOverlay.addEventListener("click", (e) => {
+          e.preventDefault();
+          closeTooltip();
+        });
+      }
+
+      // Close on Escape key
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && tooltipDialogue.classList.contains("active")) {
+          closeTooltip();
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
