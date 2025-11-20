@@ -1427,9 +1427,10 @@
           }
           
           const note = arpNotes[arpIndex % arpNotes.length];
-          const freq = noteFreq[note];
+          const freq = getNoteFrequency(note);
           if (freq) {
             // Apply arp octave offset (separate from bass)
+            // This shifts the whole recording up/down when octave buttons are pressed
             const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
             const now = ctx.currentTime;
             createArpVoice(adjustedFreq, now);
@@ -1716,6 +1717,29 @@
         return { osc, gain, filter, stopTime: t0 + totalDuration };
       }
 
+      // Helper function to get frequency for any note, even if not in noteFreq
+      // Calculates frequency based on octave: freq = baseFreq * 2^(octaveDifference)
+      function getNoteFrequency(note) {
+        // If note exists in noteFreq, return it
+        if (noteFreq[note]) return noteFreq[note];
+        
+        // Extract note name and octave
+        const noteMatch = note.match(/^([A-G]#?)(\d)$/);
+        if (!noteMatch) return null;
+        
+        const noteName = noteMatch[1];
+        const octave = parseInt(noteMatch[2], 10);
+        
+        // Find the base frequency for this note in octave 1
+        const baseNote = noteName + "1";
+        const baseFreq = noteFreq[baseNote];
+        if (!baseFreq) return null;
+        
+        // Calculate frequency for the target octave: freq = baseFreq * 2^(octave - 1)
+        const octaveDifference = octave - 1;
+        return baseFreq * Math.pow(2, octaveDifference);
+      }
+
       function generateArpNotes(rootNote, mode) {
         if (!rootNote) return [];
         const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
@@ -1723,8 +1747,8 @@
         
         // Sort scaleNotes by pitch (frequency) to ensure we always go up
         const sortedScaleNotes = [...scaleNotes].sort((a, b) => {
-          const freqA = noteFreq[a] || 0;
-          const freqB = noteFreq[b] || 0;
+          const freqA = getNoteFrequency(a) || 0;
+          const freqB = getNoteFrequency(b) || 0;
           return freqA - freqB;
         });
         
@@ -1752,13 +1776,9 @@
                 const octave = parseInt(noteMatch[2], 10);
                 const nextOctaveNote = noteName + (octave + 1);
                 
-                // Check if this note exists in noteFreq, otherwise use the base note
-                if (noteFreq[nextOctaveNote]) {
-                  notes.push(nextOctaveNote);
-                } else {
-                  // Fallback: use the base note if next octave doesn't exist
-                  notes.push(baseNote);
-                }
+                // Always use the next octave note, even if it doesn't exist in noteFreq
+                // The frequency will be calculated as baseFreq * 2 (one octave up)
+                notes.push(nextOctaveNote);
               } else {
                 notes.push(baseNote);
               }
@@ -1782,9 +1802,10 @@
         
         // Play the recorded note directly (rootNote field stores the actual note played by live arp)
         const note = evt.rootNote;
-        const freq = noteFreq[note];
+        const freq = getNoteFrequency(note);
         if (freq) {
           // Apply arp octave offset (separate from bass)
+          // This shifts the whole recording up/down when octave buttons are pressed
           const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
           createArpVoice(adjustedFreq, when);
         }
