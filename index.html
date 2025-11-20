@@ -83,35 +83,6 @@
         font-size: 10px;
       }
 
-    /* Hide sequencer and drums initially */
-    .initial-state .step-indicator,
-    .initial-state .seq-controls,
-    .initial-state .transport,
-    .initial-state .drums,
-    .initial-state .email {
-      display: none !important;
-    }
-
-    /* Show sequencer and drums after piano interaction */
-    .center-shell.revealed .step-indicator,
-    .center-shell.revealed .seq-controls,
-    .center-shell.revealed .transport,
-    .center-shell.revealed .drums,
-    .center-shell.revealed .email {
-      display: block !important;
-      opacity: 1;
-      visibility: visible;
-      pointer-events: auto;
-    }
-    
-    /* Restore flex display for specific elements */
-    .center-shell.revealed .step-indicator,
-    .center-shell.revealed .seq-controls,
-    .center-shell.revealed .transport,
-    .center-shell.revealed .drums {
-      display: flex !important;
-    }
-
     .container {
       max-width: 620px;
       width: 100%;
@@ -679,6 +650,34 @@
     @keyframes trailFade {
       0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
       100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.7); }
+    }
+
+    /* Hide sequencer and drums initially - placed at end for maximum specificity */
+    .initial-state .step-indicator,
+    .initial-state .seq-controls,
+    .initial-state .transport,
+    .initial-state .drums,
+    .initial-state .email {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      max-height: 0 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+      overflow: hidden !important;
+      transition: opacity 0.6s ease, visibility 0.6s ease, max-height 0.6s ease, margin 0.6s ease;
+      pointer-events: none !important;
+    }
+
+    /* Show sequencer and drums after piano interaction */
+    .center-shell.revealed .step-indicator,
+    .center-shell.revealed .seq-controls,
+    .center-shell.revealed .transport,
+    .center-shell.revealed .drums,
+    .center-shell.revealed .email {
+      opacity: 1 !important;
+      visibility: visible !important;
+      max-height: 2000px !important;
+      pointer-events: auto !important;
     }
   </style>
 </head>
