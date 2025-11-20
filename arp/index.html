@@ -1005,6 +1005,9 @@
       let currentArpMode = "up";
       let arpPattern = new Array(TOTAL_STEPS).fill(null);
       let savedArpPattern = null;
+      let arpOctaveOffset = 2; // Arp starts at +2 octaves (highest bass octave) and can go up/down from there
+      let liveArpInterval = null; // For live arp when holding key
+      let liveArpRootNote = null; // Current held note for live arp
 
       let transportStartTime = null;
       let transportRunning = false;
@@ -1222,13 +1225,21 @@
       
       if (octaveUpBtn) {
         octaveUpBtn.addEventListener("click", () => {
-          octaveOffset = Math.min(octaveOffset + 1, 2); // Limit to +2 octaves
+          if (currentMode === "arp") {
+            arpOctaveOffset = Math.min(arpOctaveOffset + 1, 5); // Arp can go higher
+          } else {
+            octaveOffset = Math.min(octaveOffset + 1, 2); // Limit to +2 octaves for bass
+          }
         });
       }
       
       if (octaveDownBtn) {
         octaveDownBtn.addEventListener("click", () => {
-          octaveOffset = Math.max(octaveOffset - 1, -2); // Limit to -2 octaves
+          if (currentMode === "arp") {
+            arpOctaveOffset = Math.max(arpOctaveOffset - 1, 0); // Arp can't go below base
+          } else {
+            octaveOffset = Math.max(octaveOffset - 1, -2); // Limit to -2 octaves for bass
+          }
         });
       }
 
@@ -1261,6 +1272,10 @@
       if (arpModeSelect) {
         arpModeSelect.addEventListener("change", (e) => {
           currentArpMode = e.target.value;
+          // Restart live arp if currently playing with new mode
+          if (liveArpRootNote) {
+            startLiveArp(liveArpRootNote);
+          }
         });
       }
 
@@ -1362,19 +1377,59 @@
       const glideTime = 0.16; // Portamento time (160ms to match Serum 2)
       let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
 
+      function startLiveArp(rootNote) {
+        if (liveArpInterval) {
+          clearInterval(liveArpInterval);
+          liveArpInterval = null;
+        }
+        
+        liveArpRootNote = rootNote;
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Start arp immediately
+        const arpNotes = generateArpNotes(rootNote, currentArpMode || "up");
+        if (arpNotes.length === 0) return;
+        
+        let arpIndex = 0;
+        const noteDuration = STEP_DUR; // 16th note timing
+        
+        const playNextNote = () => {
+          if (!liveArpRootNote) return; // Stop if note released
+          
+          const note = arpNotes[arpIndex % arpNotes.length];
+          const freq = noteFreq[note];
+          if (freq) {
+            // Apply arp octave offset (separate from bass)
+            const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+            const now = ctx.currentTime;
+            createArpVoice(adjustedFreq, now);
+          }
+          arpIndex++;
+        };
+        
+        // Play first note immediately
+        playNextNote();
+        
+        // Then continue at 16th note intervals
+        const intervalMs = STEP_DUR * 1000;
+        liveArpInterval = setInterval(playNextNote, intervalMs);
+      }
+      
+      function stopLiveArp() {
+        if (liveArpInterval) {
+          clearInterval(liveArpInterval);
+          liveArpInterval = null;
+        }
+        liveArpRootNote = null;
+      }
+
       function startOrGlideToNote(rawNote) {
         const mapped = scaleMap[rawNote] || rawNote;
         
         if (currentMode === "arp") {
-          let freq = noteFreq[mapped];
-          if (!freq) return;
-          if (octaveOffset !== 0) {
-            freq = freq * Math.pow(2, octaveOffset);
-          }
-          const ctx = getAudio();
-          if (!ctx) return;
-          const now = ctx.currentTime;
-          createArpVoice(freq, now);
+          // Start live arp when key is held
+          startLiveArp(mapped);
           return;
         }
         
@@ -1421,6 +1476,12 @@
       }
 
       function stopCurrentVoice() {
+        // Stop live arp if in arp mode
+        if (currentMode === "arp") {
+          stopLiveArp();
+          return;
+        }
+        
         if (!currentVoice) return;
         const ctx = getAudio();
         if (!ctx) return;
@@ -1548,44 +1609,58 @@
         if (!ctx || !freq) return null;
         const now = ctx.currentTime;
         const t0 = Math.max(startTime, now);
+        
+        // Crystal Castles / deadmau5 style pluck - bright, crisp, monophonic
         const osc = ctx.createOscillator();
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(freq, t0);
+        osc.type = "sawtooth"; // Bright sawtooth for that classic pluck character
+        
+        // Filter with envelope for that pluck character
         const filter = ctx.createBiquadFilter();
         filter.type = "lowpass";
-        filter.frequency.setValueAtTime(2000, t0);
-        filter.Q.setValueAtTime(1, t0);
+        filter.Q.setValueAtTime(2, t0); // Some resonance for brightness
+        
+        // Filter envelope: opens quickly then closes for pluck
+        const filterAttack = 0.001;
+        const filterDecay = 0.08;
+        const filterSustainFreq = 800; // Lower sustain frequency
+        const filterPeakFreq = 8000; // Bright peak
+        
+        filter.frequency.setValueAtTime(filterSustainFreq, t0);
+        filter.frequency.linearRampToValueAtTime(filterPeakFreq, t0 + filterAttack);
+        filter.frequency.exponentialRampToValueAtTime(filterSustainFreq, t0 + filterAttack + filterDecay);
+        
+        osc.frequency.setValueAtTime(freq, t0);
+        
         const gain = ctx.createGain();
-        const attack = 0.0005;
-        const decay = 0.29;
-        const sustain = 0;
-        const release = 0.015;
+        // Short, snappy ADSR for pluck
+        const attack = 0.002; // Very quick attack
+        const decay = 0.12; // Quick decay
+        const sustain = 0.1; // Low sustain
+        const release = 0.03; // Short release
         const totalDuration = attack + decay + release;
+        
         gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(0.3, t0 + attack);
-        gain.gain.linearRampToValueAtTime(sustain, t0 + attack + decay);
+        gain.gain.linearRampToValueAtTime(0.35, t0 + attack);
+        gain.gain.exponentialRampToValueAtTime(sustain, t0 + attack + decay);
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
-        gain.gain.linearRampToValueAtTime(0, t0 + totalDuration);
-        const beatDuration = BEAT_DUR;
-        const delayL = ctx.createDelay(1.0);
-        const delayR = ctx.createDelay(1.0);
-        const delayGainL = ctx.createGain();
-        const delayGainR = ctx.createGain();
-        delayL.delayTime.setValueAtTime(beatDuration / 2, t0);
-        delayR.delayTime.setValueAtTime(beatDuration / 4, t0);
-        delayGainL.gain.setValueAtTime(0.3, t0);
-        delayGainR.gain.setValueAtTime(0.3, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + totalDuration);
+        
+        // Light delay for depth (Crystal Castles style)
+        const delay = ctx.createDelay(1.0);
+        const delayGain = ctx.createGain();
+        delay.delayTime.setValueAtTime(BEAT_DUR / 4, t0); // 16th note delay
+        delayGain.gain.setValueAtTime(0.25, t0);
+        
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(ctx.destination);
-        gain.connect(delayGainL);
-        gain.connect(delayGainR);
-        delayGainL.connect(delayL);
-        delayGainR.connect(delayR);
-        delayL.connect(ctx.destination);
-        delayR.connect(ctx.destination);
+        gain.connect(delayGain);
+        delayGain.connect(delay);
+        delay.connect(ctx.destination);
+        
         osc.start(t0);
         osc.stop(t0 + totalDuration + 0.1);
+        
         return { osc, gain, filter, stopTime: t0 + totalDuration };
       }
 
@@ -1612,12 +1687,14 @@
         if (!evt || !evt.rootNote) return;
         const arpNotes = generateArpNotes(evt.rootNote, evt.arpMode || "up");
         if (arpNotes.length === 0) return;
-        const noteDuration = STEP_DUR / 4;
+        const noteDuration = STEP_DUR / 4; // 16th notes
         arpNotes.forEach((note, index) => {
           const noteStartTime = when + (index * noteDuration);
           const freq = noteFreq[note];
           if (freq) {
-            createArpVoice(freq, noteStartTime);
+            // Apply arp octave offset (separate from bass)
+            const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+            createArpVoice(adjustedFreq, noteStartTime);
           }
         });
       }
