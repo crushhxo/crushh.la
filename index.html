@@ -1459,7 +1459,8 @@
         const now = ctx.currentTime;
 
         // Use exact duration - no quantization or rounding
-        const total = Math.max(0.08, durationSeconds);
+        // Allow very short notes (minimum 0.01s to prevent audio glitches, but preserve actual short durations)
+        const total = Math.max(0.01, durationSeconds);
 
         // Always use portamento - glide from last frequency (or current if voice is active)
         let startFreq = freq;
