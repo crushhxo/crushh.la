@@ -39,22 +39,6 @@
       align-items: flex-start;
     }
 
-    /* On desktop, show elements by default (only hide on mobile) */
-    @media (min-width: 431px) {
-      .initial-state .step-indicator,
-      .initial-state .seq-controls,
-      .initial-state .transport,
-      .initial-state .drums {
-        opacity: 1;
-        visibility: visible;
-        height: auto;
-        pointer-events: auto;
-      }
-      
-      .center-shell.initial-state {
-        align-items: flex-start;
-      }
-    }
 
     @media (max-width: 430px) {
       .center-shell {
@@ -104,7 +88,8 @@
     .initial-state .step-indicator,
     .initial-state .seq-controls,
     .initial-state .transport,
-    .initial-state .drums {
+    .initial-state .drums,
+    .initial-state .email {
       opacity: 0;
       visibility: hidden;
       height: 0;
@@ -119,7 +104,8 @@
     .center-shell.revealed .step-indicator,
     .center-shell.revealed .seq-controls,
     .center-shell.revealed .transport,
-    .center-shell.revealed .drums {
+    .center-shell.revealed .drums,
+    .center-shell.revealed .email {
       opacity: 1;
       visibility: visible;
       height: auto;
@@ -754,10 +740,6 @@
 
       <div class="ringer-note"><em>ringer must be on to play</em></div>
 
-      <div class="email">
-        <a href="mailto:contact@crushh.la">contact@crushh.la</a>
-      </div>
-
       <!-- 16 quarter-note dots for 4 bars -->
       <div class="step-indicator" id="step-indicator"></div>
 
@@ -839,6 +821,10 @@
           </div>
           <div class="drum-grid" data-part="perc"></div>
         </div>
+      </div>
+
+      <div class="email">
+        <a href="mailto:contact@crushh.la">contact@crushh.la</a>
       </div>
     </div>
   </div>
@@ -2146,14 +2132,12 @@
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
 
-      // Reveal hidden elements on first piano interaction (mobile only)
+      // Reveal hidden elements on first piano interaction
       const centerShell = document.querySelector(".center-shell");
       let hasInteracted = false;
       
       function revealElements() {
-        // Only reveal on mobile (screen width <= 430px)
-        const isMobile = window.innerWidth <= 430;
-        if (!hasInteracted && centerShell && isMobile) {
+        if (!hasInteracted && centerShell) {
           hasInteracted = true;
           centerShell.classList.add("revealed");
           centerShell.classList.remove("initial-state");
