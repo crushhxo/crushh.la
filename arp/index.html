@@ -1720,13 +1720,51 @@
         if (!rootNote) return [];
         const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
         if (scaleNotes.length === 0) return [];
-        const rootIndex = scaleNotes.findIndex(note => note === rootNote);
+        
+        // Sort scaleNotes by pitch (frequency) to ensure we always go up
+        const sortedScaleNotes = [...scaleNotes].sort((a, b) => {
+          const freqA = noteFreq[a] || 0;
+          const freqB = noteFreq[b] || 0;
+          return freqA - freqB;
+        });
+        
+        const rootIndex = sortedScaleNotes.findIndex(note => note === rootNote);
         if (rootIndex === -1) return [];
         const notes = [];
         if (mode === "up") {
+          // For "up" pattern, always go up in pitch
+          // If we run out of notes, continue to next octave
           for (let i = 0; i < 4; i++) {
-            const scaleIndex = (rootIndex + i) % scaleNotes.length;
-            notes.push(scaleNotes[scaleIndex]);
+            let scaleIndex = rootIndex + i;
+            
+            // If we've gone past the end of sortedScaleNotes, continue to next octave
+            if (scaleIndex >= sortedScaleNotes.length) {
+              // Calculate how many scale steps we need from root
+              const scaleStepsFromRoot = i;
+              // Find which scale degree this corresponds to (wrapping around)
+              const scaleDegreeIndex = scaleStepsFromRoot % sortedScaleNotes.length;
+              const baseNote = sortedScaleNotes[scaleDegreeIndex];
+              
+              // Extract note name and octave
+              const noteMatch = baseNote.match(/^([A-G]#?)(\d)$/);
+              if (noteMatch) {
+                const noteName = noteMatch[1];
+                const octave = parseInt(noteMatch[2], 10);
+                const nextOctaveNote = noteName + (octave + 1);
+                
+                // Check if this note exists in noteFreq, otherwise use the base note
+                if (noteFreq[nextOctaveNote]) {
+                  notes.push(nextOctaveNote);
+                } else {
+                  // Fallback: use the base note if next octave doesn't exist
+                  notes.push(baseNote);
+                }
+              } else {
+                notes.push(baseNote);
+              }
+            } else {
+              notes.push(sortedScaleNotes[scaleIndex]);
+            }
           }
         }
         return notes;
