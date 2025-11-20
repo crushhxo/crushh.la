@@ -1698,20 +1698,42 @@
       function scheduleArpForStep(globalStep, when) {
         if (recState !== "playing") return;
         const localStep = globalStep % TOTAL_STEPS;
-        const evt = arpPattern[localStep];
-        if (!evt || !evt.rootNote) return;
-        const arpNotes = generateArpNotes(evt.rootNote, evt.arpMode || "up");
-        if (arpNotes.length === 0) return;
-        const noteDuration = STEP_DUR / 4; // 16th notes
-        arpNotes.forEach((note, index) => {
-          const noteStartTime = when + (index * noteDuration);
-          const freq = noteFreq[note];
-          if (freq) {
-            // Apply arp octave offset (separate from bass)
-            const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
-            createArpVoice(adjustedFreq, noteStartTime);
+        
+        // Each arp note takes 1 full step (16th note)
+        // If root is recorded at step 0, play arp notes at steps 0, 1, 2, 3
+        // We need to find the root note that started this arp cycle
+        // Look backwards up to 3 steps to find the most recent root note
+        let rootNote = null;
+        let arpMode = "up";
+        let arpNoteIndex = 0; // 0, 1, 2, or 3 - which note in the 4-note arp cycle
+        
+        // Check current step and previous 3 steps to find the root note
+        for (let i = 0; i < 4; i++) {
+          const checkStep = (localStep - i + TOTAL_STEPS) % TOTAL_STEPS;
+          const checkEvt = arpPattern[checkStep];
+          if (checkEvt && checkEvt.rootNote) {
+            // Found a root note - this is i steps ago
+            rootNote = checkEvt.rootNote;
+            arpMode = checkEvt.arpMode || "up";
+            arpNoteIndex = i; // 0 = current step (start of cycle), 1-3 = in middle of cycle
+            break;
           }
-        });
+        }
+        
+        if (!rootNote) return;
+        
+        // Generate arp notes from the root
+        const arpNotes = generateArpNotes(rootNote, arpMode);
+        if (arpNotes.length === 0) return;
+        
+        // Play the arp note that corresponds to this step in the cycle (0-3)
+        const note = arpNotes[arpNoteIndex % arpNotes.length];
+        const freq = noteFreq[note];
+        if (freq) {
+          // Apply arp octave offset (separate from bass)
+          const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+          createArpVoice(adjustedFreq, when);
+        }
       }
 
       function scheduleSynthForStep(globalStep, when) {
