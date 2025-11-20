@@ -229,8 +229,32 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       margin: 8px 0;
+    }
+    .synth-mute-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.02);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      flex-shrink: 0;
+      min-width: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+    .synth-mute-button:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .synth-mute-button.active {
+      background: #111111;
+      color: #f7f7f7;
+      border-color: #111111;
+      transform: translateY(1px);
     }
     .mode-selector {
       font-size: 10px;
@@ -741,6 +765,7 @@
       </div>
 
       <div class="mode-selectors" id="mode-selectors">
+        <button class="synth-mute-button" id="synth-mute">m</button>
         <select class="mode-selector" id="synth-mode">
           <option value="bass">bass</option>
           <option value="arp">arp</option>
@@ -1009,6 +1034,10 @@
       let liveArpInterval = null; // For live arp when holding key
       let liveArpRootNote = null; // Current held note for live arp
       // Removed arpRecordingInterval - arp now records the actual notes played by live arp
+      
+      // Mute states for bass and arp
+      let bassMuted = false;
+      let arpMuted = false;
 
       let transportStartTime = null;
       let transportRunning = false;
@@ -1247,6 +1276,7 @@
       const synthModeSelect = document.getElementById("synth-mode");
       const arpModeSelect = document.getElementById("arp-mode");
       const modeSelectors = document.getElementById("mode-selectors");
+      const synthMuteBtn = document.getElementById("synth-mute");
 
       function updateModeUI() {
         const recBtn = document.getElementById("seq-record");
@@ -1276,6 +1306,12 @@
             }
           }
         }
+        
+        // Update mute button state based on current mode
+        if (synthMuteBtn) {
+          const isMuted = currentMode === "arp" ? arpMuted : bassMuted;
+          synthMuteBtn.classList.toggle("active", isMuted);
+        }
       }
 
       if (synthModeSelect) {
@@ -1292,6 +1328,19 @@
           if (liveArpRootNote) {
             startLiveArp(liveArpRootNote);
           }
+        });
+      }
+
+      // Mute button for bass/arp
+      if (synthMuteBtn) {
+        synthMuteBtn.addEventListener("click", () => {
+          // Toggle mute for current mode
+          if (currentMode === "arp") {
+            arpMuted = !arpMuted;
+          } else {
+            bassMuted = !bassMuted;
+          }
+          updateModeUI();
         });
       }
 
@@ -1795,6 +1844,9 @@
       function scheduleArpForStep(globalStep, when) {
         // Play arp if pattern exists, independent of recording state
         // This allows arp to play while bass is being recorded and vice versa
+        // Check if arp is muted
+        if (arpMuted) return;
+        
         const localStep = globalStep % TOTAL_STEPS;
         
         // Check if there's a recorded note at this step
@@ -1816,6 +1868,9 @@
       function scheduleSynthForStep(globalStep, when) {
         // Play bass if pattern exists, independent of recording state
         // This allows bass to play while arp is being recorded and vice versa
+        // Check if bass is muted
+        if (bassMuted) return;
+        
         const localStep = globalStep % TOTAL_STEPS;
         const evt = synthPattern[localStep];
         if (!evt) return;
