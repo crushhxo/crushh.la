@@ -1617,6 +1617,8 @@
       let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
       // ARP FUNCTIONS
+      // FALLBACK VERSION: Crystal Castles / deadmau5 style pluck with ping pong delay
+      // L 1/8, R 1/16, feedback 40%, mix 50%
       function createArpVoice(freq, startTime) {
         const ctx = getAudio();
         if (!ctx || !freq) return null;
