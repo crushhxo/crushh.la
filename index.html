@@ -87,8 +87,7 @@
     .initial-state .step-indicator,
     .initial-state .seq-controls,
     .initial-state .transport,
-    .initial-state .drums,
-    .initial-state .email {
+    .initial-state .drums {
       opacity: 0;
       visibility: hidden;
       height: 0;
@@ -103,8 +102,7 @@
     .center-shell.revealed .step-indicator,
     .center-shell.revealed .seq-controls,
     .center-shell.revealed .transport,
-    .center-shell.revealed .drums,
-    .center-shell.revealed .email {
+    .center-shell.revealed .drums {
       opacity: 1;
       visibility: visible;
       height: auto;
@@ -739,6 +737,10 @@
 
       <div class="ringer-note"><em>ringer must be on to play</em></div>
 
+      <div class="email">
+        <a href="mailto:contact@crushh.la">contact@crushh.la</a>
+      </div>
+
       <!-- 16 quarter-note dots for 4 bars -->
       <div class="step-indicator" id="step-indicator"></div>
 
@@ -820,10 +822,6 @@
           </div>
           <div class="drum-grid" data-part="perc"></div>
         </div>
-      </div>
-
-      <div class="email">
-        <a href="mailto:contact@crushh.la">contact@crushh.la</a>
       </div>
     </div>
   </div>
@@ -1013,13 +1011,21 @@
         if (!ctx) return;
         const now = ctx.currentTime;
 
-        transportStartTime = now + 0.15;
+        // Reduced delay for immediate playback - schedule first step immediately
+        transportStartTime = now + 0.05;
         transportRunning = true;
 
         // Start at step 0, schedule it at transportStartTime
         globalStepCounter = 0;
         nextStepTime = transportStartTime;
         lastQuarterVisual = null;
+
+        // Schedule step 0 immediately to avoid delay
+        const localStep = 0;
+        scheduleDrumsForStep(localStep, nextStepTime);
+        scheduleSynthForStep(localStep, nextStepTime);
+        globalStepCounter++;
+        nextStepTime += STEP_DUR;
 
         if (!stepTimer) {
           stepTimer = setInterval(() => {
@@ -1046,7 +1052,7 @@
               scheduleDrumsForStep(localStep, nextStepTime);
               scheduleSynthForStep(localStep, nextStepTime);
 
-              // Increment AFTER scheduling so step 0 plays at transportStartTime
+              // Increment AFTER scheduling
               globalStepCounter++;
               nextStepTime += STEP_DUR;
             }
