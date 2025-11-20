@@ -1617,8 +1617,8 @@
       let lastSequencerFreq = null; // Track last frequency for always-on portamento
 
       // ARP FUNCTIONS
-      // FALLBACK VERSION: Crystal Castles / deadmau5 style pluck with delay
-      // Delay: 1/8 note, feedback 20%, mix 50% - fades out with each ping
+      // FALLBACK VERSION: Crystal Castles / deadmau5 style pluck with simple delay
+      // Delay: 16th note, 25% mix, no feedback
       function createArpVoice(freq, startTime) {
         const ctx = getAudio();
         if (!ctx || !freq) return null;
@@ -1660,39 +1660,17 @@
         gain.gain.setValueAtTime(sustain, t0 + attack + decay);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + totalDuration);
         
-        // Simple delay: 1/8 note, feedback 20%, mix 50% - fades out with each ping
+        // Light delay for depth (Crystal Castles style)
         const delay = ctx.createDelay(1.0);
-        const feedbackGain = ctx.createGain();
-        const wetGain = ctx.createGain();
-        const dryGain = ctx.createGain();
+        const delayGain = ctx.createGain();
+        delay.delayTime.setValueAtTime(BEAT_DUR / 4, t0); // 16th note delay
+        delayGain.gain.setValueAtTime(0.25, t0);
         
-        // Delay time: 1/8 note
-        delay.delayTime.setValueAtTime(BEAT_DUR / 2, t0);
-        
-        // Feedback: 20% - causes each repeat to fade out
-        feedbackGain.gain.setValueAtTime(0.2, t0);
-        
-        // Mix: 50% wet, 50% dry
-        wetGain.gain.setValueAtTime(0.5, t0);
-        dryGain.gain.setValueAtTime(0.5, t0);
-        
-        // Signal flow
         osc.connect(filter);
         filter.connect(gain);
-        
-        // Dry signal (50%)
-        gain.connect(dryGain);
-        dryGain.connect(ctx.destination);
-        
-        // Wet signal to delay (50%)
-        gain.connect(wetGain);
-        wetGain.connect(delay);
-        
-        // Feedback loop: delay -> feedback -> delay (fades out with each ping)
-        delay.connect(feedbackGain);
-        feedbackGain.connect(delay);
-        
-        // Output from delay
+        gain.connect(ctx.destination);
+        gain.connect(delayGain);
+        delayGain.connect(delay);
         delay.connect(ctx.destination);
         
         osc.start(t0);
