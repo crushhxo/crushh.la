@@ -1648,8 +1648,9 @@
       let recStartTime = null;
       let recEndTime = null;
       let recStartGlobalStep = 0;
-      let pendingNotes = {}; // mappedNote -> { startGlobalStep }
+      let pendingNotes = {}; // mappedNote -> { startGlobalStep, localStart, actualStartTime }
       let currentRecordedNote = null;
+      let preRecordingNotes = {}; // Notes held before recording starts: mappedNote -> { pressTime }
       
       // Sequencer voice for portamento (separate from live voice)
       let sequencerVoice = null;
@@ -2021,9 +2022,22 @@
       function recordNoteOn(mappedNote) {
         // Check the appropriate recording state based on current mode
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
-        if (currentRecState !== "recording") return;
+        
+        // Allow recording during count-in and recording states
+        // This captures notes held before recording starts
+        if (currentRecState !== "recording" && currentRecState !== "count-in") {
+          // If we're in count-in or about to record, store the note to be recorded when recording starts
+          if (currentRecState === "count-in") {
+            const ctx = getAudio();
+            if (ctx) {
+              preRecordingNotes[mappedNote] = { pressTime: ctx.currentTime };
+            }
+          }
+          return;
+        }
+        
         const ctx = getAudio();
-        if (!ctx || recStartTime === null || recEndTime === null) return;
+        if (!ctx) return;
 
         const now = ctx.currentTime;
         
@@ -2035,19 +2049,20 @@
           return;
         }
         
+        // If recStartTime is not set yet (during count-in), store the note
+        if (recStartTime === null || recEndTime === null) {
+          preRecordingNotes[mappedNote] = { pressTime: now };
+          return;
+        }
+        
         // If note is played slightly before 1.1, carry it over to start at 1.1
-        // Allow very generous tolerance (up to 75% of a step before) to capture early notes
+        // Allow very generous tolerance (up to 100% of a step before) to capture early notes
         // This ensures notes played slightly early are always captured at beat 1.1
         let noteStartTime = now;
         if (now < recStartTime) {
-          // Note played before recording start - carry it over to start at 1.1
-          // Use 75% of a step (~87ms at 130 BPM) for maximum tolerance
-          const earlyTolerance = STEP_DUR * 0.75;
-          if (now >= recStartTime - earlyTolerance) {
-            noteStartTime = recStartTime;
-          } else {
-            return; // Too early, ignore
-          }
+          // Note played before recording start - always carry it over to start at 1.1
+          // This captures notes held before recording starts
+          noteStartTime = recStartTime;
         }
         
         // Don't record notes after recording end
@@ -2062,14 +2077,14 @@
         // Since we carried over early notes to recStartTime, elapsed will be 0 or positive
         const elapsedFromRecStart = noteStartTime - recStartTime;
         
-        // FOOLPROOF BEAT 1.1 CAPTURE: Use a very generous window for step 0 (beat 1.1)
-        // If note is within 75% of a step from recStartTime, force it to step 0
+        // FOOLPROOF BEAT 1.1 CAPTURE: Capture any note within the first step (1.1 to 1.2)
+        // If note is within the first step from recStartTime, force it to step 0
         // This ensures beat 1.1 is ALWAYS captured, even with timing variations
-        const step0Threshold = STEP_DUR * 0.75; // ~87ms at 130 BPM - very generous window
+        const step0Threshold = STEP_DUR; // Full first step - capture anything between 1.1 and 1.2
         
         let localStart;
         if (elapsedFromRecStart <= step0Threshold) {
-          // Force to step 0 (beat 1.1) for any note near the start
+          // Force to step 0 (beat 1.1) for any note in the first step
           localStart = 0;
         } else {
           // Use 16th note quantization (full resolution) to preserve all 16th note positions
@@ -2095,6 +2110,12 @@
       function recordNoteOff(mappedNote) {
         // Check the appropriate recording state based on current mode
         const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        
+        // Clear pre-recording notes if key is released before recording starts
+        if (currentRecState === "count-in" || recStartTime === null) {
+          if (preRecordingNotes[mappedNote]) delete preRecordingNotes[mappedNote];
+        }
+        
         if (currentRecState !== "recording") return;
         if (currentMode === "arp") {
           // For arp mode, recording stops when key is released
@@ -2285,6 +2306,7 @@
             recState = "idle";
           }
           pendingNotes = {};
+          preRecordingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
           recEndTime = null;
@@ -2329,11 +2351,13 @@
           recState = "idle";
           // Arp recording is handled by live arp, no interval to clear
           pendingNotes = {};
+          preRecordingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
           recEndTime = null;
           synthPattern = new Array(TOTAL_STEPS).fill(null);
           arpPattern = new Array(TOTAL_STEPS).fill(null);
+          preRecordingNotes = {};
           if (recBtn) {
             recBtn.classList.remove("recording","looping");
             updateModeUI();
@@ -2386,6 +2410,7 @@
             
             // Arp recording is handled by live arp, no interval to clear
             pendingNotes = {};
+            preRecordingNotes = {};
             currentRecordedNote = null;
             
             // Update button state
@@ -2400,6 +2425,7 @@
               recState = "idle";
               recStartTime = null;
               recEndTime = null;
+              preRecordingNotes = {};
             } else {
               // Keep transport running, other pattern is still playing
               // Update global recState based on remaining patterns
@@ -2532,6 +2558,24 @@
                 synthPattern = new Array(TOTAL_STEPS).fill(null);
               }
               pendingNotes = {};
+              
+              // Capture any notes held before recording started
+              // These should be recorded at step 0 (beat 1.1)
+              if (currentMode === "bass" && Object.keys(preRecordingNotes).length > 0) {
+                const ctx = getAudio();
+                if (ctx && recStartTime !== null && recEndTime !== null) {
+                  Object.keys(preRecordingNotes).forEach(mappedNote => {
+                    // Record the note at step 0 (beat 1.1)
+                    pendingNotes[mappedNote] = {
+                      startGlobalStep: 0,
+                      localStart: 0,
+                      actualStartTime: recStartTime // Start exactly at 1.1
+                    };
+                  });
+                }
+              }
+              preRecordingNotes = {};
+              
               recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec bass*";
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
@@ -2621,6 +2665,24 @@
                 synthPattern = new Array(TOTAL_STEPS).fill(null);
               }
               pendingNotes = {};
+              
+              // Capture any notes held before recording started
+              // These should be recorded at step 0 (beat 1.1)
+              if (currentMode === "bass" && Object.keys(preRecordingNotes).length > 0) {
+                const ctx = getAudio();
+                if (ctx && recStartTime !== null && recEndTime !== null) {
+                  Object.keys(preRecordingNotes).forEach(mappedNote => {
+                    // Record the note at step 0 (beat 1.1)
+                    pendingNotes[mappedNote] = {
+                      startGlobalStep: 0,
+                      localStart: 0,
+                      actualStartTime: recStartTime // Start exactly at 1.1
+                    };
+                  });
+                }
+              }
+              preRecordingNotes = {};
+              
               recBtn.textContent = currentMode === "arp" ? "rec arp*" : "rec bass*";
               startRecordingMetronome(recStartTime, recEndTime);
             }, toRecordMs);
@@ -2690,9 +2752,10 @@
           currentRecordedNote = mapped;
 
           setActiveKey(key);
-          // Check if current mode is recording
+          // Check if current mode is recording or in count-in
+          // Allow recording during count-in to capture notes held before recording starts
           const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
-          if (currentRecState === "recording") {
+          if (currentRecState === "recording" || currentRecState === "count-in") {
             recordNoteOn(mapped);
           }
           startOrGlideToNote(rawNote);
@@ -2725,7 +2788,8 @@
           if (currentRecState === "recording" && currentRecordedNote) {
             recordNoteOff(currentRecordedNote);
           }
-          if (currentRecState === "recording") {
+          // Allow recording during count-in to capture notes held before recording starts
+          if (currentRecState === "recording" || currentRecState === "count-in") {
             recordNoteOn(mapped);
           }
           currentRecordedNote = mapped;
@@ -2751,7 +2815,9 @@
 
         currentRecordedNote = mapped;
         setActiveKey(key);
-        if (recState === "recording") {
+        // Allow recording during count-in to capture notes held before recording starts
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (recState === "recording" || currentRecState === "count-in") {
           recordNoteOn(mapped);
         }
         startOrGlideToNote(rawNote);
@@ -2773,7 +2839,8 @@
           if (currentRecState === "recording" && currentRecordedNote) {
             recordNoteOff(currentRecordedNote);
           }
-          if (currentRecState === "recording") {
+          // Allow recording during count-in to capture notes held before recording starts
+          if (currentRecState === "recording" || currentRecState === "count-in") {
             recordNoteOn(mapped);
           }
           currentRecordedNote = mapped;
