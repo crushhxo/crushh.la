@@ -89,14 +89,7 @@
     .initial-state .transport,
     .initial-state .drums,
     .initial-state .email {
-      opacity: 0;
-      visibility: hidden;
-      height: 0;
-      margin-top: 0 !important;
-      margin-bottom: 0 !important;
-      overflow: hidden;
-      transition: opacity 0.6s ease, visibility 0.6s ease, height 0.6s ease, margin 0.6s ease;
-      pointer-events: none;
+      display: none !important;
     }
 
     /* Show sequencer and drums after piano interaction */
@@ -105,10 +98,18 @@
     .center-shell.revealed .transport,
     .center-shell.revealed .drums,
     .center-shell.revealed .email {
+      display: block !important;
       opacity: 1;
       visibility: visible;
-      height: auto;
       pointer-events: auto;
+    }
+    
+    /* Restore flex display for specific elements */
+    .center-shell.revealed .step-indicator,
+    .center-shell.revealed .seq-controls,
+    .center-shell.revealed .transport,
+    .center-shell.revealed .drums {
+      display: flex !important;
     }
 
     .container {
