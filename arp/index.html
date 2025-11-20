@@ -259,34 +259,6 @@
     .mode-selectors.show-arp .arp-mode-selector {
       display: block;
     }
-    .mode-mute-button {
-      font-size: 10px;
-      text-transform: lowercase;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(0, 0, 0, 0.25);
-      background: rgba(0, 0, 0, 0.02);
-      color: #111111;
-      cursor: pointer;
-      letter-spacing: 0.08em;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
-      flex-shrink: 0;
-      min-width: 24px;
-    }
-    .mode-mute-button:hover {
-      background: rgba(0, 0, 0, 0.05);
-    }
-    .mode-mute-button.active {
-      background: #111111;
-      color: #f7f7f7;
-      border-color: #111111;
-      transform: translateY(1px);
-    }
-    .mode-mute-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
 
     .piano {
       position: relative;
@@ -769,19 +741,13 @@
       </div>
 
       <div class="mode-selectors" id="mode-selectors">
-        <div class="mode-mute-group">
-          <button class="mode-mute-button" id="bass-mute" data-part="bass">m</button>
-          <select class="mode-selector" id="synth-mode">
-            <option value="bass">bass</option>
-            <option value="arp">arp</option>
-          </select>
-        </div>
-        <div class="mode-mute-group">
-          <button class="mode-mute-button" id="arp-mute" data-part="arp">m</button>
-          <select class="mode-selector arp-mode-selector" id="arp-mode" style="display: none;">
-            <option value="up">up</option>
-          </select>
-        </div>
+        <select class="mode-selector" id="synth-mode">
+          <option value="bass">bass</option>
+          <option value="arp">arp</option>
+        </select>
+        <select class="mode-selector arp-mode-selector" id="arp-mode" style="display: none;">
+          <option value="up">up</option>
+        </select>
       </div>
 
       <div class="ringer-note"><em>ringer must be on to play</em></div>
@@ -1281,25 +1247,6 @@
       const synthModeSelect = document.getElementById("synth-mode");
       const arpModeSelect = document.getElementById("arp-mode");
       const modeSelectors = document.getElementById("mode-selectors");
-      const bassMuteBtn = document.getElementById("bass-mute");
-      const arpMuteBtn = document.getElementById("arp-mute");
-
-      // Initialize mute button states
-      if (bassMuteBtn) {
-        bassMuteBtn.classList.toggle("active", bassMuted);
-        bassMuteBtn.addEventListener("click", () => {
-          bassMuted = !bassMuted;
-          bassMuteBtn.classList.toggle("active", bassMuted);
-        });
-      }
-
-      if (arpMuteBtn) {
-        arpMuteBtn.classList.toggle("active", arpMuted);
-        arpMuteBtn.addEventListener("click", () => {
-          arpMuted = !arpMuted;
-          arpMuteBtn.classList.toggle("active", arpMuted);
-        });
-      }
 
       function updateModeUI() {
         const recBtn = document.getElementById("seq-record");
@@ -1328,15 +1275,6 @@
               recBtn.textContent = "rec bass";
             }
           }
-        }
-        
-        // Update mute button visibility based on current mode
-        // Both buttons are always visible, but this ensures they're properly initialized
-        if (bassMuteBtn) {
-          bassMuteBtn.classList.toggle("active", bassMuted);
-        }
-        if (arpMuteBtn) {
-          arpMuteBtn.classList.toggle("active", arpMuted);
         }
       }
 
@@ -1643,9 +1581,6 @@
         perc: false
       };
 
-      // Bass and arp mute states
-      let bassMuted = false;
-      let arpMuted = false;
 
       const drumVariantIndex = {
         kick: 0,
@@ -1857,9 +1792,6 @@
       }
 
       function scheduleArpForStep(globalStep, when) {
-        // Check if arp is muted
-        if (arpMuted) return;
-        
         // Play arp if pattern exists, independent of recording state
         // This allows arp to play while bass is being recorded and vice versa
         const localStep = globalStep % TOTAL_STEPS;
@@ -1881,9 +1813,6 @@
       }
 
       function scheduleSynthForStep(globalStep, when) {
-        // Check if bass is muted
-        if (bassMuted) return;
-        
         // Play bass if pattern exists, independent of recording state
         // This allows bass to play while arp is being recorded and vice versa
         const localStep = globalStep % TOTAL_STEPS;
