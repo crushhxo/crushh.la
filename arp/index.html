@@ -1008,6 +1008,8 @@
       let arpOctaveOffset = 2; // Arp starts at +2 octaves (highest bass octave) and can go up/down from there
       let liveArpInterval = null; // For live arp when holding key
       let liveArpRootNote = null; // Current held note for live arp
+      let arpRecordingInterval = null; // For continuously recording arp root note while key is held
+      let arpRecordingRootNote = null; // Root note being recorded for arp
 
       let transportStartTime = null;
       let transportRunning = false;
@@ -1972,7 +1974,46 @@
             localStart = 0;
           }
           localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
+          
+          // Record the root note at this step
           arpPattern[localStart] = { rootNote: mappedNote, arpMode: currentArpMode };
+          
+          // Start continuous recording interval if not already running for this note
+          // This ensures the root note is recorded at each step while key is held
+          if (mappedNote !== arpRecordingRootNote) {
+            // Clear any existing interval
+            if (arpRecordingInterval) {
+              clearInterval(arpRecordingInterval);
+              arpRecordingInterval = null;
+            }
+            arpRecordingRootNote = mappedNote;
+            const recordInterval = () => {
+              if (recState !== "recording" || arpRecordingRootNote !== mappedNote) {
+                if (arpRecordingInterval) {
+                  clearInterval(arpRecordingInterval);
+                  arpRecordingInterval = null;
+                }
+                arpRecordingRootNote = null;
+                return;
+              }
+              const elapsed = Math.max(0, ctx.currentTime - recStartTime);
+              const step = Math.floor(elapsed / STEP_DUR);
+              const clampedStep = Math.max(0, Math.min(step, TOTAL_STEPS - 1));
+              // Only record if we haven't exceeded the recording end time
+              if (clampedStep < TOTAL_STEPS) {
+                arpPattern[clampedStep] = { rootNote: mappedNote, arpMode: currentArpMode };
+              } else {
+                // Recording has ended, clear interval
+                if (arpRecordingInterval) {
+                  clearInterval(arpRecordingInterval);
+                  arpRecordingInterval = null;
+                }
+                arpRecordingRootNote = null;
+              }
+            };
+            // Record at 16th note intervals (STEP_DUR)
+            arpRecordingInterval = setInterval(recordInterval, STEP_DUR * 1000);
+          }
           return;
         }
         
@@ -2036,6 +2077,14 @@
       function recordNoteOff(mappedNote) {
         if (recState !== "recording") return;
         if (currentMode === "arp") {
+          // Stop continuous recording interval
+          if (arpRecordingInterval) {
+            clearInterval(arpRecordingInterval);
+            arpRecordingInterval = null;
+          }
+          if (arpRecordingRootNote === mappedNote) {
+            arpRecordingRootNote = null;
+          }
           if (pendingNotes[mappedNote]) delete pendingNotes[mappedNote];
           return;
         }
@@ -2069,6 +2118,12 @@
 
       function finalizeRecording() {
         if (currentMode === "arp") {
+          // Clear arp recording interval
+          if (arpRecordingInterval) {
+            clearInterval(arpRecordingInterval);
+            arpRecordingInterval = null;
+          }
+          arpRecordingRootNote = null;
           pendingNotes = {};
           currentRecordedNote = null;
           return;
@@ -2250,6 +2305,12 @@
             savedArpPattern = arpPattern.map(step => step ? {...step} : null);
           }
           recState = "idle";
+          // Clear arp recording interval
+          if (arpRecordingInterval) {
+            clearInterval(arpRecordingInterval);
+            arpRecordingInterval = null;
+          }
+          arpRecordingRootNote = null;
           pendingNotes = {};
           currentRecordedNote = null;
           recStartTime = null;
@@ -2292,6 +2353,12 @@
             savedArpPattern = null;
             synthPattern = new Array(TOTAL_STEPS).fill(null);
             arpPattern = new Array(TOTAL_STEPS).fill(null);
+            // Clear arp recording interval
+            if (arpRecordingInterval) {
+              clearInterval(arpRecordingInterval);
+              arpRecordingInterval = null;
+            }
+            arpRecordingRootNote = null;
             pendingNotes = {};
             currentRecordedNote = null;
             recStartTime = null;
