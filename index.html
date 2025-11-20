@@ -39,6 +39,23 @@
       align-items: flex-start;
     }
 
+    /* On desktop, show elements by default (only hide on mobile) */
+    @media (min-width: 431px) {
+      .initial-state .step-indicator,
+      .initial-state .seq-controls,
+      .initial-state .transport,
+      .initial-state .drums {
+        opacity: 1;
+        visibility: visible;
+        height: auto;
+        pointer-events: auto;
+      }
+      
+      .center-shell.initial-state {
+        align-items: flex-start;
+      }
+    }
+
     @media (max-width: 430px) {
       .center-shell {
         padding: 12px 12px 12px;
@@ -2129,12 +2146,14 @@
       const keys = document.querySelectorAll(".key[data-note]");
       if (!piano || !keys.length) return;
 
-      // Reveal hidden elements on first piano interaction
+      // Reveal hidden elements on first piano interaction (mobile only)
       const centerShell = document.querySelector(".center-shell");
       let hasInteracted = false;
       
       function revealElements() {
-        if (!hasInteracted && centerShell) {
+        // Only reveal on mobile (screen width <= 430px)
+        const isMobile = window.innerWidth <= 430;
+        if (!hasInteracted && centerShell && isMobile) {
           hasInteracted = true;
           centerShell.classList.add("revealed");
           centerShell.classList.remove("initial-state");
