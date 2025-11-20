@@ -1622,7 +1622,10 @@
       // --- SYNTH SEQUENCER (64-step mono pattern) ---
       let synthPattern = new Array(TOTAL_STEPS).fill(null); // each step: {note, lengthSeconds} - start quantized to 16ths, duration preserved
       let savedSynthPattern = null; // Saved pattern that persists after stop until new recording
-      let recState = "idle"; // "idle" | "count-in" | "recording" | "playing"
+      // Separate recording states for bass and arp to make them fully independent
+      let bassRecState = "idle"; // "idle" | "count-in" | "recording" | "playing"
+      let arpRecState = "idle"; // "idle" | "count-in" | "recording" | "playing"
+      let recState = "idle"; // Legacy: tracks if ANY mode is recording/playing (for backward compatibility)
       let recStartTime = null;
       let recEndTime = null;
       let recStartGlobalStep = 0;
@@ -1713,7 +1716,8 @@
       }
 
       function scheduleArpForStep(globalStep, when) {
-        if (recState !== "playing") return;
+        // Play arp if pattern exists, independent of recording state
+        // This allows arp to play while bass is being recorded and vice versa
         const localStep = globalStep % TOTAL_STEPS;
         
         // Find the most recent root note by looking backwards through the pattern
@@ -1757,7 +1761,8 @@
       }
 
       function scheduleSynthForStep(globalStep, when) {
-        if (recState !== "playing") return;
+        // Play bass if pattern exists, independent of recording state
+        // This allows bass to play while arp is being recorded and vice versa
         const localStep = globalStep % TOTAL_STEPS;
         const evt = synthPattern[localStep];
         if (!evt) return;
@@ -1962,7 +1967,9 @@
       }
 
       function recordNoteOn(mappedNote) {
-        if (recState !== "recording") return;
+        // Check the appropriate recording state based on current mode
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (currentRecState !== "recording") return;
         const ctx = getAudio();
         if (!ctx || recStartTime === null || recEndTime === null) return;
 
@@ -1991,7 +1998,7 @@
             }
             arpRecordingRootNote = mappedNote;
             const recordInterval = () => {
-              if (recState !== "recording" || arpRecordingRootNote !== mappedNote) {
+              if (arpRecState !== "recording" || arpRecordingRootNote !== mappedNote) {
                 if (arpRecordingInterval) {
                   clearInterval(arpRecordingInterval);
                   arpRecordingInterval = null;
@@ -2078,7 +2085,9 @@
       }
 
       function recordNoteOff(mappedNote) {
-        if (recState !== "recording") return;
+        // Check the appropriate recording state based on current mode
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (currentRecState !== "recording") return;
         if (currentMode === "arp") {
           // Stop continuous recording interval
           if (arpRecordingInterval) {
@@ -2255,18 +2264,26 @@
           // reset pattern playback if already running
           stopTransport();
           
+          // Set mode-specific recStates based on whether patterns exist
           if (savedSynthPattern) {
             synthPattern = savedSynthPattern.map(step => step ? {...step} : null);
-            recState = "playing";
+            bassRecState = "playing";
           } else {
             synthPattern = new Array(TOTAL_STEPS).fill(null);
-            if (!savedArpPattern) recState = "idle";
+            bassRecState = "idle";
           }
           if (savedArpPattern) {
             arpPattern = savedArpPattern.map(step => step ? {...step} : null);
-            if (recState === "idle") recState = "playing";
+            arpRecState = "playing";
           } else {
             arpPattern = new Array(TOTAL_STEPS).fill(null);
+            arpRecState = "idle";
+          }
+          // Update global recState
+          if (bassRecState === "playing" || arpRecState === "playing") {
+            recState = "playing";
+          } else {
+            recState = "idle";
           }
           pendingNotes = {};
           currentRecordedNote = null;
@@ -2307,6 +2324,9 @@
           if (hasArpPattern) {
             savedArpPattern = arpPattern.map(step => step ? {...step} : null);
           }
+          // Set both mode-specific states to idle
+          bassRecState = "idle";
+          arpRecState = "idle";
           recState = "idle";
           // Clear arp recording interval
           if (arpRecordingInterval) {
@@ -2332,7 +2352,9 @@
           // Check if we're trying to stop/clear the current recording
           // Only stop if we're recording/playing the SAME mode
           const isCurrentlyLooping = recBtn.classList.contains("looping");
-          const isCurrentlyRecording = recState === "recording" || recState === "count-in";
+          // Check if current mode is recording
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          const isCurrentlyRecording = currentRecState === "recording" || currentRecState === "count-in";
           
           // If looping or recording the same mode, toggle off (stop)
           if ((isCurrentlyLooping || isCurrentlyRecording) && recState !== "idle") {
@@ -2357,41 +2379,48 @@
                 }
               }
             
-              // Clear the pattern for the current mode only
-              if (currentMode === "arp") {
-                savedArpPattern = null;
-                arpPattern = new Array(TOTAL_STEPS).fill(null);
-              } else {
-                savedSynthPattern = null;
-                synthPattern = new Array(TOTAL_STEPS).fill(null);
-              }
-              
-              // Clear arp recording interval
-              if (arpRecordingInterval) {
-                clearInterval(arpRecordingInterval);
-                arpRecordingInterval = null;
-              }
-              arpRecordingRootNote = null;
-              pendingNotes = {};
-              currentRecordedNote = null;
-              
-              // Update button state
-              recBtn.classList.remove("recording", "looping");
-              updateModeUI();
-              
-              // Only stop transport if BOTH patterns are now empty
-              const hasSynthPattern = savedSynthPattern && savedSynthPattern.some(step => step !== null);
-              const hasArpPattern = savedArpPattern && savedArpPattern.some(step => step !== null);
-              if (!hasSynthPattern && !hasArpPattern) {
-                stopTransport();
-                recState = "idle";
-                recStartTime = null;
-                recEndTime = null;
-              } else {
-                // Keep transport running, other pattern is still playing
+            // Clear the pattern for the current mode only
+            if (currentMode === "arp") {
+              savedArpPattern = null;
+              arpPattern = new Array(TOTAL_STEPS).fill(null);
+              arpRecState = "idle";
+            } else {
+              savedSynthPattern = null;
+              synthPattern = new Array(TOTAL_STEPS).fill(null);
+              bassRecState = "idle";
+            }
+            
+            // Clear arp recording interval
+            if (arpRecordingInterval) {
+              clearInterval(arpRecordingInterval);
+              arpRecordingInterval = null;
+            }
+            arpRecordingRootNote = null;
+            pendingNotes = {};
+            currentRecordedNote = null;
+            
+            // Update button state
+            recBtn.classList.remove("recording", "looping");
+            updateModeUI();
+            
+            // Only stop transport if BOTH patterns are now empty
+            const hasSynthPattern = savedSynthPattern && savedSynthPattern.some(step => step !== null);
+            const hasArpPattern = savedArpPattern && savedArpPattern.some(step => step !== null);
+            if (!hasSynthPattern && !hasArpPattern) {
+              stopTransport();
+              recState = "idle";
+              recStartTime = null;
+              recEndTime = null;
+            } else {
+              // Keep transport running, other pattern is still playing
+              // Update global recState based on remaining patterns
+              if (bassRecState === "playing" || arpRecState === "playing") {
                 recState = "playing";
+              } else {
+                recState = "idle";
               }
-              return;
+            }
+            return;
             }
           }
           
@@ -2465,7 +2494,13 @@
             if (stopBtn) stopBtn.classList.remove("active");
             
             // count-in display 4,3,2,1 with metronome clicks
-            recState = "count-in";
+            // Set mode-specific recording state
+            if (currentMode === "arp") {
+              arpRecState = "count-in";
+            } else {
+              bassRecState = "count-in";
+            }
+            recState = "count-in"; // Legacy global state
             recBtn.classList.add("recording");
             recBtn.classList.remove("looping");
             recBtn.textContent = "4";
@@ -2479,7 +2514,8 @@
               playMetronomeClick(t, 0.35);
               
               setTimeout(() => {
-                if (recState === "count-in") {
+                const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+                if (currentRecState === "count-in") {
                   recBtn.textContent = displayNum.toString();
                 }
               }, delay);
@@ -2492,8 +2528,15 @@
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
-              if (recState !== "count-in") return;
-              recState = "recording";
+              const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+              if (currentRecState !== "count-in") return;
+              // Set mode-specific recording state
+              if (currentMode === "arp") {
+                arpRecState = "recording";
+              } else {
+                bassRecState = "recording";
+              }
+              recState = "recording"; // Legacy global state
               if (currentMode === "arp") {
                 arpPattern = new Array(TOTAL_STEPS).fill(null);
               } else {
@@ -2506,13 +2549,20 @@
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
             setTimeout(() => {
-              if (recState !== "recording") return;
-              recState = "playing";
+              const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+              if (currentRecState !== "recording") return;
+              // Set mode-specific playing state
               if (currentMode === "arp") {
+                arpRecState = "playing";
                 savedArpPattern = arpPattern.map(step => step ? {...step} : null);
               } else {
+                bassRecState = "playing";
                 finalizeRecording();
                 savedSynthPattern = synthPattern.map(step => step ? {...step} : null);
+              }
+              // Update global recState if either is playing
+              if (bassRecState === "playing" || arpRecState === "playing") {
+                recState = "playing";
               }
               stopRecordingMetronome();
               recBtn.classList.remove("recording");
@@ -2533,7 +2583,13 @@
             const recEnd = recStart + loopDuration; // End exactly at next 1.1
 
             // count-in over last 4 beats of current loop (4,3,2,1) with metronome clicks
-            recState = "count-in";
+            // Set mode-specific recording state
+            if (currentMode === "arp") {
+              arpRecState = "count-in";
+            } else {
+              bassRecState = "count-in";
+            }
+            recState = "count-in"; // Legacy global state
             recBtn.classList.add("recording");
             recBtn.classList.remove("looping");
             recBtn.textContent = "4";
@@ -2548,7 +2604,8 @@
               playMetronomeClick(t, 0.35);
               
               setTimeout(() => {
-                if (recState === "count-in") {
+                const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+                if (currentRecState === "count-in") {
                   recBtn.textContent = displayNum.toString();
                 }
               }, delay);
@@ -2560,8 +2617,15 @@
 
             const toRecordMs = Math.max(0, (recStartTime - now) * 1000);
             setTimeout(() => {
-              if (recState !== "count-in") return;
-              recState = "recording";
+              const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+              if (currentRecState !== "count-in") return;
+              // Set mode-specific recording state
+              if (currentMode === "arp") {
+                arpRecState = "recording";
+              } else {
+                bassRecState = "recording";
+              }
+              recState = "recording"; // Legacy global state
               if (currentMode === "arp") {
                 arpPattern = new Array(TOTAL_STEPS).fill(null);
               } else {
@@ -2574,13 +2638,20 @@
 
             const toEndMs = Math.max(0, (recEndTime - now) * 1000);
             setTimeout(() => {
-              if (recState !== "recording") return;
-              recState = "playing";
+              const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+              if (currentRecState !== "recording") return;
+              // Set mode-specific playing state
               if (currentMode === "arp") {
+                arpRecState = "playing";
                 savedArpPattern = arpPattern.map(step => step ? {...step} : null);
               } else {
+                bassRecState = "playing";
                 finalizeRecording();
                 savedSynthPattern = synthPattern.map(step => step ? {...step} : null);
+              }
+              // Update global recState if either is playing
+              if (bassRecState === "playing" || arpRecState === "playing") {
+                recState = "playing";
               }
               stopRecordingMetronome();
               recBtn.classList.remove("recording");
@@ -2630,7 +2701,9 @@
           currentRecordedNote = mapped;
 
           setActiveKey(key);
-          if (recState === "recording") {
+          // Check if current mode is recording
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          if (currentRecState === "recording") {
             recordNoteOn(mapped);
           }
           startOrGlideToNote(rawNote);
@@ -2640,7 +2713,8 @@
       window.addEventListener("mouseup", () => {
         if (!pointerDown) return;
         pointerDown = false;
-        if (recState === "recording" && currentRecordedNote) {
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (currentRecState === "recording" && currentRecordedNote) {
           recordNoteOff(currentRecordedNote);
         }
         currentRecordedNote = null;
@@ -2658,10 +2732,11 @@
         const mapped = scaleMap[rawNote] || rawNote;
 
         if (mapped !== currentRecordedNote) {
-          if (recState === "recording" && currentRecordedNote) {
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          if (currentRecState === "recording" && currentRecordedNote) {
             recordNoteOff(currentRecordedNote);
           }
-          if (recState === "recording") {
+          if (currentRecState === "recording") {
             recordNoteOn(mapped);
           }
           currentRecordedNote = mapped;
@@ -2705,10 +2780,11 @@
         const mapped = scaleMap[rawNote] || rawNote;
 
         if (mapped !== currentRecordedNote) {
-          if (recState === "recording" && currentRecordedNote) {
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          if (currentRecState === "recording" && currentRecordedNote) {
             recordNoteOff(currentRecordedNote);
           }
-          if (recState === "recording") {
+          if (currentRecState === "recording") {
             recordNoteOn(mapped);
           }
           currentRecordedNote = mapped;
@@ -2724,7 +2800,8 @@
         if (!touch) return;
         activeTouchId = null;
         pointerDown = false;
-        if (recState === "recording" && currentRecordedNote) {
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (currentRecState === "recording" && currentRecordedNote) {
           recordNoteOff(currentRecordedNote);
         }
         currentRecordedNote = null;
