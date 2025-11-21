@@ -772,6 +772,7 @@
         </select>
         <select class="mode-selector arp-mode-selector" id="arp-mode" style="display: none;">
           <option value="up">up</option>
+          <option value="down">down</option>
         </select>
       </div>
 
@@ -1813,6 +1814,7 @@
         const rootIndex = sortedScaleNotes.findIndex(note => note === rootNote);
         if (rootIndex === -1) return [];
         const notes = [];
+        
         if (mode === "up") {
           // For "up" pattern, always go up in pitch
           // If we run out of notes, continue to next octave
@@ -1844,7 +1846,41 @@
               notes.push(sortedScaleNotes[scaleIndex]);
             }
           }
+        } else if (mode === "down") {
+          // For "down" pattern, always go down in pitch
+          // If we run out of notes, continue to previous octave
+          for (let i = 0; i < 4; i++) {
+            let scaleIndex = rootIndex - i;
+            
+            // If we've gone below 0, continue to previous octave
+            if (scaleIndex < 0) {
+              // Calculate how many scale steps we need from root (going down)
+              const scaleStepsFromRoot = i;
+              // Find which scale degree this corresponds to (wrapping around backwards)
+              // When going down from rootIndex by i steps and wrapping: (rootIndex - i) mod length
+              // Since scaleIndex is negative, we add length to get positive equivalent
+              const scaleDegreeIndex = ((rootIndex - scaleStepsFromRoot) % sortedScaleNotes.length + sortedScaleNotes.length) % sortedScaleNotes.length;
+              const baseNote = sortedScaleNotes[scaleDegreeIndex];
+              
+              // Extract note name and octave
+              const noteMatch = baseNote.match(/^([A-G]#?)(\d)$/);
+              if (noteMatch) {
+                const noteName = noteMatch[1];
+                const octave = parseInt(noteMatch[2], 10);
+                const prevOctaveNote = noteName + (octave - 1);
+                
+                // Always use the previous octave note, even if it doesn't exist in noteFreq
+                // The frequency will be calculated as baseFreq / 2 (one octave down)
+                notes.push(prevOctaveNote);
+              } else {
+                notes.push(baseNote);
+              }
+            } else {
+              notes.push(sortedScaleNotes[scaleIndex]);
+            }
+          }
         }
+        
         return notes;
       }
 
