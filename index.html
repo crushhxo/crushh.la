@@ -1365,12 +1365,7 @@
 
       if (synthModeSelect) {
         synthModeSelect.addEventListener("change", (e) => {
-          const previousMode = currentMode;
           currentMode = e.target.value;
-          // If switching away from arp mode, stop the arp (even if latch is on)
-          if (previousMode === "arp" && currentMode !== "arp" && liveArpRootNote) {
-            stopLiveArp();
-          }
           updateModeUI();
         });
       }
