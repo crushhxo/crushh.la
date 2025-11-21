@@ -1760,49 +1760,49 @@
           // When transport is not running or arp is not latched, use setInterval
           const intervalMs = STEP_DUR * 1000;
           const wasSwitchingNotes = wasDifferentNote && previousRootNote !== null;
-          
-          const playNextNote = () => {
+        
+        const playNextNote = () => {
             // Only play if we're still on the same root note and not using transport sync
             if (!liveArpRootNote || liveArpRootNote !== rootNote || (transportRunning && arpLatch)) {
-              if (liveArpInterval) {
-                clearInterval(liveArpInterval);
-                liveArpInterval = null;
-              }
-              return;
+            if (liveArpInterval) {
+              clearInterval(liveArpInterval);
+              liveArpInterval = null;
             }
-            
+            return;
+          }
+          
             const note = liveArpNotes[liveArpIndex % liveArpNotes.length];
-            const freq = getNoteFrequency(note);
-            if (freq) {
-              // Apply arp octave offset (separate from bass)
-              // This shifts the whole recording up/down when octave buttons are pressed
-              const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
-              const now = ctx.currentTime;
-              createArpVoice(adjustedFreq, now);
+          const freq = getNoteFrequency(note);
+          if (freq) {
+            // Apply arp octave offset (separate from bass)
+            // This shifts the whole recording up/down when octave buttons are pressed
+            const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+            const now = ctx.currentTime;
+            createArpVoice(adjustedFreq, now);
+            
+            // Record the actual arp note being played if we're recording
+            if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
+              const elapsedFromRecStart = Math.max(0, now - recStartTime);
+              const stepFloat = elapsedFromRecStart / STEP_DUR;
+              let localStart = Math.round(stepFloat);
+              const step0Threshold = STEP_DUR * 0.75;
+              if (elapsedFromRecStart <= step0Threshold) {
+                localStart = 0;
+              }
+              localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
               
-              // Record the actual arp note being played if we're recording
-              if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
-                const elapsedFromRecStart = Math.max(0, now - recStartTime);
-                const stepFloat = elapsedFromRecStart / STEP_DUR;
-                let localStart = Math.round(stepFloat);
-                const step0Threshold = STEP_DUR * 0.75;
-                if (elapsedFromRecStart <= step0Threshold) {
-                  localStart = 0;
-                }
-                localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
-                
-                // Only record if we haven't exceeded the recording end time
-                if (now < recEndTime && localStart < TOTAL_STEPS) {
-                  // Record the actual note being played, not the root
-                  arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
-                }
+              // Only record if we haven't exceeded the recording end time
+              if (now < recEndTime && localStart < TOTAL_STEPS) {
+                // Record the actual note being played, not the root
+                arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
               }
             }
+          }
             liveArpIndex++;
           };
           
           // Start the interval
-          liveArpInterval = setInterval(playNextNote, intervalMs);
+        liveArpInterval = setInterval(playNextNote, intervalMs);
           
           if (wasSwitchingNotes) {
             // When switching notes, don't play first note immediately
@@ -1881,7 +1881,7 @@
         if (currentMode === "arp") {
           // Only stop arp if latch is off
           if (!arpLatch) {
-            stopLiveArp();
+          stopLiveArp();
           }
           return;
         }
@@ -2418,13 +2418,19 @@
         const nextNoteStartTime = when + STEP_DUR;
         const gap = nextNoteStartTime - noteEndTime;
         
-        // If there's a next note and a gap, we need to extend this note to eliminate the gap
+        // If there's a next note, we need to extend this note to eliminate any gap
         // This creates the continuous, tied-together sound of Serum 2 mono portamento
         let adjustedDuration = duration;
-        if (hasNextNote && gap > 0) {
-          // Extend this note to connect seamlessly to the next note
-          // This ensures no gaps in the continuous voice, including loop boundary
-          adjustedDuration = duration + gap;
+        if (hasNextNote) {
+          // Always extend to next note start to ensure no gaps
+          // Use max to handle both positive gaps and negative overlaps
+          const targetEndTime = nextNoteStartTime;
+          const currentEndTime = when + duration;
+          const gapToFill = Math.max(0, targetEndTime - currentEndTime);
+          adjustedDuration = duration + gapToFill;
+          
+          // Add small safety buffer to ensure overlap and prevent any timing edge cases
+          adjustedDuration += 0.001; // 1ms safety buffer
         }
         
         // Always pass as legato if there's a next note (for continuous voice)
@@ -2461,7 +2467,7 @@
         
         let startFreq = freq;
         let voiceIsActive = false;
-        const legatoWindow = 0.15; // 150ms window for legato (generous for continuous voice and loop boundary)
+        const legatoWindow = 0.2; // 200ms window for legato (increased for more reliable detection)
         
         // Check if we have an active voice or a recently ended voice
         // In mono portamento mode, we want to maintain continuous sound
@@ -2471,26 +2477,38 @@
           try {
             // Check if voice will still be playing when this note starts
             // Use t0 (scheduled start time) instead of now for accurate detection
-            // Add small buffer to account for timing variations
-            const voiceEndBuffer = 0.01; // 10ms buffer for timing safety
+            // Increase buffer significantly to account for timing variations and prevent gaps
+            const voiceEndBuffer = 0.05; // 50ms buffer for timing safety (increased from 10ms)
+            
+            // Check if voice is still active or just ended
+            const timeUntilNoteStart = t0 - now;
+            const timeSinceVoiceEnd = now - sequencerVoice.noteEndTime;
+            const timeUntilVoiceEnd = sequencerVoice.noteEndTime - now;
+            
+            // Voice is definitely active if it ends after note starts (with buffer)
             if (sequencerVoice.noteEndTime > (t0 - voiceEndBuffer)) {
               // Voice will still be playing when this note starts - definitely legato
+            voiceIsActive = true;
+            startFreq = sequencerVoice.osc.frequency.value;
+            isLegato = true;
+            } 
+            // Voice just ended or will end soon - check if within legato window
+            else if (timeSinceVoiceEnd <= legatoWindow && timeSinceVoiceEnd >= -voiceEndBuffer) {
+              // Within legato window - reactivate voice for seamless connection
+              // This handles loop boundary where note at 4.1 needs to tie into 1.1
               voiceIsActive = true;
-              startFreq = sequencerVoice.osc.frequency.value;
+              startFreq = lastSequencerFreq !== null ? lastSequencerFreq : sequencerVoice.osc.frequency.value;
               isLegato = true;
-            } else {
-              // Voice ended before this note starts - check if within legato window
-              const timeSinceEnd = t0 - sequencerVoice.noteEndTime;
-              if (timeSinceEnd <= legatoWindow && timeSinceEnd >= -voiceEndBuffer && lastSequencerFreq !== null) {
-                // Within legato window - reactivate voice for seamless connection
-                // This handles loop boundary where note at 4.1 needs to tie into 1.1
-                voiceIsActive = true;
-                startFreq = lastSequencerFreq;
-                isLegato = true;
-              } else if (lastSequencerFreq !== null) {
-                // Outside legato window but still glide from last frequency (portamento always on)
-                startFreq = lastSequencerFreq;
-              }
+            } 
+            // Voice will end before note starts but very close - still treat as legato to prevent gaps
+            else if (timeUntilVoiceEnd > 0 && timeUntilVoiceEnd < legatoWindow && lastSequencerFreq !== null) {
+              voiceIsActive = true;
+              startFreq = lastSequencerFreq;
+              isLegato = true;
+            }
+            // Always glide from last frequency if available (portamento always on)
+            else if (lastSequencerFreq !== null) {
+              startFreq = lastSequencerFreq;
             }
           } catch (e) {
             // If osc is invalid, fall back to last frequency
@@ -2505,7 +2523,11 @@
 
         // Serum 2 style: If voice is active (legato), reuse it - only change frequency, maintain envelope
         // This creates the continuous, tied-together sound with no gaps
-        if (voiceIsActive && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
+        // CRITICAL: If isLegato is true (passed from scheduleSynthForStep when there's a next note),
+        // always try to reuse voice to prevent gaps, even if timing detection is uncertain
+        const shouldReuseVoice = voiceIsActive || (isLegato && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain);
+        
+        if (shouldReuseVoice && sequencerVoice && sequencerVoice.osc && sequencerVoice.gain) {
           const { osc, gain } = sequencerVoice;
           
           // Get current frequency and gain values
@@ -2528,7 +2550,7 @@
             osc.frequency.linearRampToValueAtTime(freq, t0 + glideTime);
           } else {
             // Note starts now or in the past - start gliding immediately
-            osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
+          osc.frequency.linearRampToValueAtTime(freq, now + glideTime);
           }
           
           // Update the sequencer voice to track the new note
@@ -2548,44 +2570,54 @@
           const release = 0.08;
           
           // Always maintain sustain for legato notes (which should be most notes in mono portamento)
-          if (isLegato) {
-            // Legato: maintain sustain level, don't retrigger envelope
-            // FIX: Ensure we're at least at sustain level to prevent volume drops
-            // Use the higher of currentGain or sustainLevel to prevent drops
-            const targetGain = Math.max(currentGain, sustainLevel);
-            
+          // CRITICAL: Prevent any gaps by ensuring gain never drops below sustain
+          // Use the higher of current gain or sustain level to prevent any volume drops
+          const targetGain = Math.max(currentGain, sustainLevel);
+          
+          // Cancel ALL scheduled values from now onwards to prevent conflicts
             gain.gain.cancelScheduledValues(now);
-            // Set target gain immediately to prevent any volume drops
-            gain.gain.setValueAtTime(targetGain, now);
+          
+          // Immediately set gain to target to prevent any drops or gaps
+          gain.gain.setValueAtTime(targetGain, now);
+          
+          // For legato notes (which is most notes in continuous sequences)
+          // Always treat as legato if isLegato is true or voice is active
+          if (isLegato || voiceIsActive || shouldReuseVoice) {
+            // Legato: maintain sustain level, don't retrigger envelope
+            // Ensure gain stays at or above sustain throughout the note
             
             // If note starts in the future, maintain target gain until note starts
-            // Then maintain sustain level throughout, release only at end
-            if (t0 > now) {
-              gain.gain.setValueAtTime(targetGain, t0);
+            if (t0 > now + 0.001) {
+              // Small gap between now and t0 - maintain target gain
+              gain.gain.setValueAtTime(targetGain, t0 - 0.001);
             }
-            gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
+            
+            // Set sustain at note start time (or now if note already started)
+            const sustainStartTime = Math.max(t0, now);
+            gain.gain.setValueAtTime(sustainLevel, sustainStartTime);
+            
+            // Maintain sustain level throughout, release only at the very end
+            // Ensure sustain is maintained right up to release
+            const releaseStartTime = t0 + total - release;
+            gain.gain.setValueAtTime(sustainLevel, releaseStartTime);
             gain.gain.linearRampToValueAtTime(0, t0 + total);
           } else {
-            // Non-legato: still maintain if in sustain to prevent gaps
-            if (currentGain >= sustainLevel * 0.5) {
-              // Already in sustain or decay - maintain it to prevent gaps
-              // FIX: Ensure we're at least at sustain level
-              const targetGain = Math.max(currentGain, sustainLevel);
-              gain.gain.cancelScheduledValues(now);
-              gain.gain.setValueAtTime(targetGain, now);
+            // Non-legato: still maintain sustain to prevent gaps if voice was active
+            // This is a safety measure to prevent gaps even in edge cases
+            const sustainStartTime = Math.max(t0, now);
+            gain.gain.setValueAtTime(sustainLevel, sustainStartTime);
               gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
               gain.gain.linearRampToValueAtTime(0, t0 + total);
-            } else {
-              // Voice was fading - bring it back to sustain to prevent gaps
-              gain.gain.cancelScheduledValues(now);
-              gain.gain.linearRampToValueAtTime(sustainLevel, now + 0.01);
-              gain.gain.setValueAtTime(sustainLevel, t0 + total - release);
-              gain.gain.linearRampToValueAtTime(0, t0 + total);
-            }
           }
           
           // Schedule oscillator stop for the new note's end time
+          // Always update stop time to the latest note's end time
+          try {
           osc.stop(t0 + total + 0.05);
+          } catch (e) {
+            // If stop fails (osc already stopped), that's okay - voice will be cleaned up
+          }
+          
           return;
         }
 
@@ -2635,12 +2667,21 @@
         lastSequencerFreq = freq;
         
         // Clean up when note ends, but keep last frequency for next note
+        // IMPORTANT: Only clear if this is still the current voice (not reused)
+        // Add extra buffer to prevent premature clearing
+        const cleanupDelay = (total + 0.1) * 1000; // Increased buffer from 0.05 to 0.1
         setTimeout(() => {
+          // Only clear if this specific oscillator is still the sequencer voice
+          // This prevents clearing a voice that was reused for the next note
           if (sequencerVoice && sequencerVoice.osc === osc) {
+            // Double-check that voice hasn't been reused by checking noteEndTime
+            const now = getAudio()?.currentTime || 0;
+            if (sequencerVoice.noteEndTime <= now + 0.05) {
             sequencerVoice = null;
+            }
             // Keep lastSequencerFreq for always-on portamento (Serum 2 behavior)
           }
-        }, (total + 0.05) * 1000);
+        }, cleanupDelay);
       }
 
       function recordNoteOn(mappedNote) {
