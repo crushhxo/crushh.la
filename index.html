@@ -615,10 +615,95 @@
       width: 100%;
     }
 
-    .drum-lane[data-part="perc"] {
-      grid-column: 1 / -1;
-      max-width: 140px;
-      margin: 0 auto;
+    /* Part Mixer */
+    .part-mixer {
+      grid-column: 2; /* Place in right column */
+      grid-row: 3; /* Same row as perc */
+      justify-self: end; /* Align to right */
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      align-items: flex-start;
+      width: 100%;
+      max-width: 120px;
+    }
+
+    .mixer-channel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mixer-slider-container {
+      height: 73px; /* Match drum grid height */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .mixer-slider {
+      -webkit-appearance: slider-vertical;
+      appearance: slider-vertical;
+      width: 8px;
+      height: 73px;
+      background: #e0e0e0; /* Same grey as step indicator downbeats */
+      border-radius: 4px;
+      outline: none;
+      cursor: pointer;
+      writing-mode: bt-lr; /* IE */
+    }
+
+    .mixer-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 8px;
+      height: 16px;
+      background: #ffffff;
+      border-radius: 4px; /* Skinny vertical oval */
+      cursor: pointer;
+      border: none;
+      margin-left: -2px;
+    }
+
+    .mixer-slider::-moz-range-thumb {
+      width: 8px;
+      height: 16px;
+      background: #ffffff;
+      border-radius: 4px; /* Skinny vertical oval */
+      cursor: pointer;
+      border: none;
+    }
+
+    .mixer-mute-button {
+      font-size: 10px;
+      text-transform: lowercase;
+      padding: 3px 6px;
+      border-radius: 2px; /* Square with slight rounding */
+      border: 1px solid rgba(0, 0, 0, 0.25);
+      background: rgba(0, 0, 0, 0.02);
+      color: #111111;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+      min-width: 20px;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mixer-mute-button:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    .mixer-mute-button.active {
+      background: #111111;
+      color: #f7f7f7;
+      border-color: #111111;
+      transform: translateY(1px);
     }
 
     .drum-header {
@@ -895,6 +980,52 @@
             </select>
           </div>
           <div class="drum-grid" data-part="perc"></div>
+        </div>
+
+        <!-- Part Mixer -->
+        <div class="part-mixer">
+          <div class="mixer-channel" data-part="kick">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="kick" min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="kick">m</button>
+          </div>
+          <div class="mixer-channel" data-part="snare">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="snare"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="snare">m</button>
+          </div>
+          <div class="mixer-channel" data-part="ch">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="ch"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="ch">m</button>
+          </div>
+          <div class="mixer-channel" data-part="oh">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="oh"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="oh">m</button>
+          </div>
+          <div class="mixer-channel" data-part="perc">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="perc"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="perc">m</button>
+          </div>
+          <div class="mixer-channel" data-part="bass">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="bass"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="bass">m</button>
+          </div>
+          <div class="mixer-channel" data-part="arp">
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="arp"  min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="arp">m</button>
+          </div>
         </div>
       </div>
 
@@ -1618,8 +1749,10 @@
           distortion.curve = createDistortionCurve(4);
           distortion.oversample = "2x";
 
+          // Apply mixer gain for bass
+          const bassMixerGain = mixerMuted.bass ? 0 : partGain.bass;
           gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(0.23, now + 0.02);
+          gain.gain.linearRampToValueAtTime(0.23 * bassMixerGain, now + 0.02);
 
           osc.connect(distortion);
           distortion.connect(gain);
@@ -1698,6 +1831,28 @@
         perc: false
       };
 
+      // Part mixer gain levels (0-1, where 1 = 100%)
+      const partGain = {
+        kick: 1.0,
+        snare: 1.0,
+        ch: 1.0,
+        oh: 1.0,
+        perc: 1.0,
+        bass: 1.0,
+        arp: 1.0
+      };
+
+      // Mixer mute states (separate from existing mutes)
+      const mixerMuted = {
+        kick: false,
+        snare: false,
+        ch: false,
+        oh: false,
+        perc: false,
+        bass: false,
+        arp: false
+      };
+
 
       const drumVariantIndex = {
         kick: 0,
@@ -1747,7 +1902,9 @@
           const gain = ctx.createGain();
 
           src.buffer = buffer;
-          gain.gain.setValueAtTime(0.4, when); // medium volume
+          // Apply mixer gain (0.4 base * mixer gain)
+          const mixerGain = mixerMuted[part] ? 0 : partGain[part];
+          gain.gain.setValueAtTime(0.4 * mixerGain, when);
 
           src.connect(gain);
           gain.connect(ctx.destination);
@@ -1811,10 +1968,12 @@
         const release = 0.03; // Short release
         const totalDuration = attack + decay + release;
         
+        // Apply mixer gain for arp
+        const arpMixerGain = mixerMuted.arp ? 0 : partGain.arp;
         gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(0.35, t0 + attack);
-        gain.gain.exponentialRampToValueAtTime(sustain, t0 + attack + decay);
-        gain.gain.setValueAtTime(sustain, t0 + attack + decay);
+        gain.gain.linearRampToValueAtTime(0.35 * arpMixerGain, t0 + attack);
+        gain.gain.exponentialRampToValueAtTime(sustain * arpMixerGain, t0 + attack + decay);
+        gain.gain.setValueAtTime(sustain * arpMixerGain, t0 + attack + decay);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + totalDuration);
         
         // Light delay for depth (Crystal Castles style)
@@ -2251,7 +2410,8 @@
           // For legato notes: DON'T retrigger envelope - maintain current level
           // This is key to Serum 2 behavior - envelope only retriggers on non-legato notes
           // Maintain sustain to prevent gaps in the continuous voice
-          const sustainLevel = 0.22;
+          const bassMixerGain = mixerMuted.bass ? 0 : partGain.bass;
+          const sustainLevel = 0.22 * bassMixerGain;
           const release = 0.08;
           
           // Always maintain sustain for legato notes (which should be most notes in mono portamento)
@@ -2318,13 +2478,14 @@
 
         const attack = 0.02;
         const decay = 0.06;
-        const sustainLevel = 0.22;
+        const bassMixerGain = mixerMuted.bass ? 0 : partGain.bass;
+        const sustainLevel = 0.22 * bassMixerGain;
         const release = 0.08;
         const sustainTime = Math.max(0, total - (attack + decay + release));
 
         // Normal envelope for new notes (non-legato)
         gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(0.23, t0 + attack);
+        gain.gain.linearRampToValueAtTime(0.23 * bassMixerGain, t0 + attack);
         gain.gain.linearRampToValueAtTime(sustainLevel, t0 + attack + decay);
         gain.gain.setValueAtTime(sustainLevel, t0 + attack + decay + sustainTime);
         gain.gain.linearRampToValueAtTime(0, t0 + total);
@@ -2572,6 +2733,32 @@
           sel.addEventListener("change", () => {
             const val = parseInt(sel.value || "1", 10);
             drumVariantIndex[part] = Math.max(0, Math.min(3, val - 1));
+          });
+        }
+      });
+
+      // Part mixer sliders and mute buttons
+      const mixerParts = ["kick", "snare", "ch", "oh", "perc", "bass", "arp"];
+      mixerParts.forEach((part) => {
+        const slider = document.querySelector(`.mixer-slider[data-part="${part}"]`);
+        const muteBtn = document.querySelector(`.mixer-mute-button[data-part="${part}"]`);
+        
+        if (slider) {
+          // Initialize slider value (top = 100, bottom = 0 for vertical slider)
+          slider.value = partGain[part] * 100;
+          
+          slider.addEventListener("input", (e) => {
+            partGain[part] = parseFloat(e.target.value) / 100;
+          });
+        }
+        
+        if (muteBtn) {
+          // Initialize button state
+          muteBtn.classList.toggle("active", mixerMuted[part]);
+          
+          muteBtn.addEventListener("click", () => {
+            mixerMuted[part] = !mixerMuted[part];
+            muteBtn.classList.toggle("active", mixerMuted[part]);
           });
         }
       });
