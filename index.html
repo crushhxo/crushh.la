@@ -664,8 +664,8 @@
     }
 
     .mixer-slider {
-      -webkit-appearance: slider-vertical;
-      appearance: slider-vertical;
+      -webkit-appearance: none;
+      appearance: none;
       writing-mode: bt-lr; /* IE */
       width: 4px;
       height: 73px;
@@ -676,6 +676,8 @@
       margin: 0;
       padding: 0;
       accent-color: #e0e0e0; /* Override browser accent color */
+      /* Force Chrome to respect custom styling */
+      -webkit-tap-highlight-color: transparent;
     }
 
     /* Webkit (Chrome, Safari) - Track */
@@ -686,32 +688,71 @@
       height: 73px !important;
       min-height: 73px !important;
       max-height: 73px !important;
+      min-width: 4px !important;
+      max-width: 4px !important;
+      /* Force grey background - override Chrome blue */
       background: #e0e0e0 !important;
       background-color: #e0e0e0 !important;
-      border-radius: 2px;
-      border: none !important;
+      background-image: none !important;
+      border-radius: 2px !important;
+      border: 0 !important;
       -webkit-box-shadow: none !important;
       box-shadow: none !important;
+      /* Prevent Chrome from applying blue accent */
+      color: #e0e0e0 !important;
     }
 
     /* Webkit (Chrome, Safari) - Thumb - Force override browser defaults */
     .mixer-slider::-webkit-slider-thumb {
       -webkit-appearance: none !important;
       appearance: none !important;
+      /* CRITICAL: Force dimensions - must be taller than wide for vertical oval */
+      /* Chrome tries to make this square/circular, so we must be very explicit */
       width: 4px !important;
       height: 16px !important;
+      min-width: 4px !important;
+      max-width: 4px !important;
       min-height: 16px !important;
       max-height: 16px !important;
+      /* Force white background - override any Chrome grey/blue */
       background: #ffffff !important;
-      border-radius: 2px 2px 2px 2px !important; /* Skinny vertical oval - taller than wide */
-      cursor: pointer;
-      border: none !important;
-      margin-left: 0;
-      box-shadow: none !important;
-      -webkit-box-shadow: none !important;
+      background-color: #ffffff !important;
+      background-image: none !important;
+      /* Explicitly remove any background image that Chrome might apply */
+      /* Vertical oval shape - ensure it's taller than wide, NOT circular */
+      /* Use 2px radius which on 4px width creates vertical oval, not circle */
+      border-radius: 2px !important;
+      -webkit-border-radius: 2px !important;
+      /* Explicitly set all corners to prevent Chrome from making it circular */
+      border-top-left-radius: 2px !important;
+      border-top-right-radius: 2px !important;
+      border-bottom-left-radius: 2px !important;
+      border-bottom-right-radius: 2px !important;
+      -webkit-border-top-left-radius: 2px !important;
+      -webkit-border-top-right-radius: 2px !important;
+      -webkit-border-bottom-left-radius: 2px !important;
+      -webkit-border-bottom-right-radius: 2px !important;
+      /* Remove all borders, outlines, and shadows */
+      border: 0 !important;
+      outline: 0 !important;
+      box-shadow: 0 0 0 0 transparent !important;
+      -webkit-box-shadow: 0 0 0 0 transparent !important;
+      /* Remove margins and padding */
+      margin: 0 !important;
+      padding: 0 !important;
+      /* Prevent Chrome from applying circular shape */
+      clip-path: none !important;
+      -webkit-clip-path: none !important;
+      cursor: pointer !important;
+      /* Force the element to respect our dimensions */
+      flex-shrink: 0 !important;
+      flex-grow: 0 !important;
+      /* Prevent Chrome from applying circular shape or grey color */
+      transform: none !important;
+      -webkit-transform: none !important;
     }
 
-    /* Additional Chrome override */
+    /* Additional Chrome override - runnable track */
     .mixer-slider::-webkit-slider-runnable-track {
       -webkit-appearance: none !important;
       appearance: none !important;
@@ -719,12 +760,17 @@
       height: 73px !important;
       min-height: 73px !important;
       max-height: 73px !important;
+      min-width: 4px !important;
+      max-width: 4px !important;
+      /* Force grey background - override Chrome blue */
       background: #e0e0e0 !important;
       background-color: #e0e0e0 !important;
-      border-radius: 2px;
-      border: none !important;
+      background-image: none !important;
+      border-radius: 2px !important;
+      border: 0 !important;
       -webkit-box-shadow: none !important;
       box-shadow: none !important;
+      color: #e0e0e0 !important;
     }
 
     /* Firefox - Track */
@@ -1058,49 +1104,49 @@
           <div class="mixer-channel" data-part="bass">
             <div class="mixer-label">bs</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="bass" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="bass" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="bass">m</button>
           </div>
           <div class="mixer-channel" data-part="arp">
             <div class="mixer-label">arp</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="arp" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="arp" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="arp">m</button>
           </div>
           <div class="mixer-channel" data-part="kick">
             <div class="mixer-label">ki</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="kick" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="kick" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="kick">m</button>
           </div>
           <div class="mixer-channel" data-part="snare">
             <div class="mixer-label">sn</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="snare" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="snare" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="snare">m</button>
           </div>
           <div class="mixer-channel" data-part="ch">
             <div class="mixer-label">ch</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="ch" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="ch" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="ch">m</button>
           </div>
           <div class="mixer-channel" data-part="oh">
             <div class="mixer-label">oh</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="oh" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="oh" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="oh">m</button>
           </div>
           <div class="mixer-channel" data-part="perc">
             <div class="mixer-label">pc</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="perc" min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="perc" orient="vertical" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="perc">m</button>
           </div>
@@ -2824,6 +2870,15 @@
         if (slider) {
           // Initialize slider value (top = 100, bottom = 0 for vertical slider)
           slider.value = partGain[part] * 100;
+          
+          // Force Chrome to respect our styling by setting style attribute
+          slider.style.setProperty('-webkit-appearance', 'none', 'important');
+          slider.style.setProperty('appearance', 'none', 'important');
+          slider.style.setProperty('accent-color', '#e0e0e0', 'important');
+          // Also set on the thumb via CSS custom property if needed
+          slider.style.setProperty('--thumb-bg', '#ffffff', 'important');
+          slider.style.setProperty('--thumb-width', '4px', 'important');
+          slider.style.setProperty('--thumb-height', '16px', 'important');
           
           slider.addEventListener("input", (e) => {
             partGain[part] = parseFloat(e.target.value) / 100;
