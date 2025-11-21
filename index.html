@@ -663,175 +663,34 @@
       flex-shrink: 0;
     }
 
+    /* Mixer Slider - Consistent cross-browser styling */
     .mixer-slider {
+      /* Use slider-vertical for webkit browsers, writing-mode for others */
       -webkit-appearance: slider-vertical;
       appearance: slider-vertical;
-      writing-mode: bt-lr; /* IE */
-      width: 5px; /* 20% wider than 4px */
+      writing-mode: bt-lr; /* Fallback for non-webkit */
+      
+      /* Dimensions */
+      width: 5px;
       height: 73px;
+      
+      /* Reset */
       background: transparent;
       border: none;
       outline: none;
-      cursor: pointer;
       margin: 0;
       padding: 0;
-      accent-color: #e0e0e0; /* Override browser accent color */
-      /* Force Chrome to respect custom styling */
+      cursor: pointer;
+      
+      /* Prevent tap highlight */
       -webkit-tap-highlight-color: transparent;
-      /* Prevent Chrome from hiding thumb until interaction */
-      -webkit-transition: none;
-      transition: none;
     }
 
-    /* Webkit (Chrome, Safari) - Track */
-    .mixer-slider::-webkit-slider-track {
-      -webkit-appearance: none !important;
-      appearance: none !important;
-      width: 5px !important;
-      height: 73px !important;
-      min-height: 73px !important;
-      max-height: 73px !important;
-      min-width: 5px !important;
-      max-width: 5px !important;
-      /* Force grey background - override Chrome blue */
-      background: #e0e0e0 !important;
-      background-color: #e0e0e0 !important;
-      background-image: none !important;
-      border-radius: 2.5px !important;
-      border: 0 !important;
-      -webkit-box-shadow: none !important;
-      box-shadow: none !important;
-      /* Prevent Chrome from applying blue accent */
-      color: #e0e0e0 !important;
-    }
-
-    /* Webkit (Chrome, Safari) - Thumb - Force override browser defaults */
-    .mixer-slider::-webkit-slider-thumb {
-      -webkit-appearance: none !important;
-      appearance: none !important;
-      /* CRITICAL: Force dimensions - must be taller than wide for vertical oval */
-      /* Chrome tries to make this square/circular, so we must be very explicit */
-      width: 5px !important;
-      height: 16px !important;
-      min-width: 5px !important;
-      max-width: 5px !important;
-      min-height: 16px !important;
-      max-height: 16px !important;
-      /* Force white background - override any Chrome grey/blue */
-      background: #ffffff !important;
-      background-color: #ffffff !important;
-      background-image: none !important;
-      /* Explicitly remove any background image that Chrome might apply */
-      /* Vertical oval shape - ensure it's taller than wide, NOT circular */
-      /* Use 2.5px radius which on 5px width creates vertical oval, not circle */
-      border-radius: 2.5px !important;
-      -webkit-border-radius: 2.5px !important;
-      /* Explicitly set all corners to prevent Chrome from making it circular */
-      border-top-left-radius: 2.5px !important;
-      border-top-right-radius: 2.5px !important;
-      border-bottom-left-radius: 2.5px !important;
-      border-bottom-right-radius: 2.5px !important;
-      -webkit-border-top-left-radius: 2.5px !important;
-      -webkit-border-top-right-radius: 2.5px !important;
-      -webkit-border-bottom-left-radius: 2.5px !important;
-      -webkit-border-bottom-right-radius: 2.5px !important;
-      /* Add border for visibility - match sequencer cell border */
-      border: 1px solid #979797 !important;
-      outline: 0 !important;
-      box-shadow: none !important;
-      -webkit-box-shadow: none !important;
-      /* Remove margins and padding */
-      margin: 0 !important;
-      padding: 0 !important;
-      /* Prevent Chrome from applying circular shape */
-      clip-path: none !important;
-      -webkit-clip-path: none !important;
-      cursor: pointer !important;
-      /* Force the element to respect our dimensions */
-      flex-shrink: 0 !important;
-      flex-grow: 0 !important;
-      /* Prevent Chrome from applying circular shape or grey color */
-      transform: none !important;
-      -webkit-transform: none !important;
-      /* Force visibility - Chrome sometimes hides thumb until hover */
-      /* These must be at the end to override any Chrome defaults */
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-      /* Prevent Chrome from hiding thumb with transitions */
-      -webkit-transition: none !important;
-      transition: none !important;
-      /* Ensure thumb is always rendered */
-      will-change: auto !important;
-      z-index: 1 !important;
-      pointer-events: auto !important;
-    }
-
-    /* Ensure thumb is visible on hover and always - match default state */
-    .mixer-slider:hover::-webkit-slider-thumb,
-    .mixer-slider:focus::-webkit-slider-thumb,
-    .mixer-slider:active::-webkit-slider-thumb,
-    .mixer-slider-active::-webkit-slider-thumb {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-      background: #ffffff !important;
-      background-color: #ffffff !important;
-      border: 1px solid #979797 !important;
-    }
-
-    /* Chrome-specific: Force thumb visibility in default state (not hover/focus/active) */
-    /* This overrides Chrome's default behavior of hiding thumb until interaction */
-    .mixer-slider:not(:hover):not(:focus):not(:active)::-webkit-slider-thumb,
-    input[type="range"].mixer-slider:not(:hover):not(:focus):not(:active)::-webkit-slider-thumb {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-      background: #ffffff !important;
-      background-color: #ffffff !important;
-      background-image: none !important;
-      border: 1px solid #979797 !important;
-      /* Override any Chrome default that might hide the thumb */
-      filter: none !important;
-      -webkit-filter: none !important;
-      transform: none !important;
-      -webkit-transform: none !important;
-      pointer-events: auto !important;
-      -webkit-transition: none !important;
-      transition: none !important;
-    }
-
-    /* Additional override with maximum specificity for Chrome */
-    input.mixer-slider.mixer-slider-active::-webkit-slider-thumb,
-    input[type="range"].mixer-slider.mixer-slider-active::-webkit-slider-thumb {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-    }
-
-    /* Additional Chrome override - runnable track */
+    /* Webkit (Chrome, Safari) - Track - consistent styling */
+    .mixer-slider::-webkit-slider-track,
     .mixer-slider::-webkit-slider-runnable-track {
-      -webkit-appearance: none !important;
-      appearance: none !important;
-      width: 5px !important;
-      height: 73px !important;
-      min-height: 73px !important;
-      max-height: 73px !important;
-      min-width: 5px !important;
-      max-width: 5px !important;
-      /* Force grey background - override Chrome blue */
-      background: #e0e0e0 !important;
-      background-color: #e0e0e0 !important;
-      background-image: none !important;
-      border-radius: 2.5px !important;
-      border: 0 !important;
-      -webkit-box-shadow: none !important;
-      box-shadow: none !important;
-      color: #e0e0e0 !important;
-    }
-
-    /* Firefox - Track */
-    .mixer-slider::-moz-range-track {
+      -webkit-appearance: none;
+      appearance: none;
       width: 5px;
       height: 73px;
       background: #e0e0e0;
@@ -839,16 +698,43 @@
       border: none;
     }
 
-    /* Firefox - Thumb */
-    .mixer-slider::-moz-range-thumb {
+    /* Webkit (Chrome, Safari) - Thumb - consistent styling */
+    .mixer-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
       width: 5px;
       height: 16px;
       background: #ffffff;
-      border-radius: 2.5px; /* Skinny vertical oval */
+      border: 1px solid #979797;
+      border-radius: 2.5px;
       cursor: pointer;
-      border: 1px solid #979797; /* Match sequencer cell border for visibility */
-      box-shadow: none;
-      opacity: 1;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Firefox - Track - consistent styling */
+    .mixer-slider::-moz-range-track {
+      -moz-appearance: none;
+      appearance: none;
+      width: 5px;
+      height: 73px;
+      background: #e0e0e0;
+      border-radius: 2.5px;
+      border: none;
+    }
+
+    /* Firefox - Thumb - consistent styling */
+    .mixer-slider::-moz-range-thumb {
+      -moz-appearance: none;
+      appearance: none;
+      width: 5px;
+      height: 16px;
+      background: #ffffff;
+      border: 1px solid #979797;
+      border-radius: 2.5px;
+      cursor: pointer;
+      margin: 0;
+      padding: 0;
     }
 
     .mixer-mute-button {
@@ -999,15 +885,6 @@
       100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.7); }
     }
 
-    /* FINAL Chrome override - Force thumb visibility with maximum specificity */
-    /* This must be at the end to override any Chrome defaults */
-    input[type="range"].mixer-slider::-webkit-slider-thumb,
-    input.mixer-slider::-webkit-slider-thumb,
-    .mixer-slider::-webkit-slider-thumb {
-      opacity: 1 !important;
-      visibility: visible !important;
-      display: block !important;
-    }
   </style>
 </head>
 <body>
@@ -2939,34 +2816,8 @@
           // Initialize slider value (top = 100, bottom = 0 for vertical slider)
           slider.value = partGain[part] * 100;
           
-          // Force Chrome to respect our styling by setting accent color
-          slider.style.setProperty('accent-color', '#e0e0e0', 'important');
-          // Force Chrome to show thumb immediately
-          slider.style.setProperty('-webkit-appearance', 'slider-vertical', 'important');
-          // Add a class to ensure thumb is always visible
-          slider.classList.add('mixer-slider-active');
-          
-          // Force Chrome to render thumb by manipulating the slider
-          // Chrome sometimes hides thumb until first interaction, so trigger a fake interaction
-          const forceThumbVisibility = () => {
-            // Trigger a mouseenter/mouseleave to force Chrome to render the thumb
-            const event = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
-            slider.dispatchEvent(event);
-            setTimeout(() => {
-              const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
-              slider.dispatchEvent(leaveEvent);
-            }, 10);
-          };
-          
-          // Trigger immediately and after delays to ensure Chrome renders
-          setTimeout(forceThumbVisibility, 0);
-          setTimeout(forceThumbVisibility, 50);
-          setTimeout(forceThumbVisibility, 200);
-          
-          // Also trigger on any interaction to ensure thumb stays visible
-          ['mouseenter', 'mouseleave', 'mousedown', 'touchstart'].forEach(eventType => {
-            slider.addEventListener(eventType, forceThumbVisibility, { once: true });
-          });
+          // Set accent color for consistent styling
+          slider.style.accentColor = '#e0e0e0';
           
           slider.addEventListener("input", (e) => {
             partGain[part] = parseFloat(e.target.value) / 100;
