@@ -232,30 +232,6 @@
       gap: 6px;
       margin: 8px 0;
     }
-    .synth-mute-button {
-      font-size: 10px;
-      text-transform: lowercase;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(0, 0, 0, 0.25);
-      background: rgba(0, 0, 0, 0.02);
-      color: #111111;
-      cursor: pointer;
-      letter-spacing: 0.08em;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
-      flex-shrink: 0;
-      min-width: 24px;
-      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    }
-    .synth-mute-button:hover {
-      background: rgba(0, 0, 0, 0.05);
-    }
-    .synth-mute-button.active {
-      background: #111111;
-      color: #f7f7f7;
-      border-color: #111111;
-      transform: translateY(1px);
-    }
     .mode-selector {
       font-size: 10px;
       padding: 4px 8px;
@@ -613,6 +589,7 @@
 
     .drum-lane {
       width: 100%;
+      position: relative;
     }
 
     /* Part Mixer */
@@ -769,40 +746,20 @@
 
     .drum-header {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 4px;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       width: 120px;
-      margin-left: auto;
-      margin-right: auto;
+      pointer-events: none;
+    }
+    
+    .drum-header select {
+      pointer-events: auto;
     }
 
-    .drum-button {
-      font-size: 10px;
-      text-transform: lowercase;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(0, 0, 0, 0.25);
-      background: rgba(0, 0, 0, 0.02);
-      color: #111111;
-      cursor: pointer;
-      letter-spacing: 0.08em;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
-      flex-shrink: 0;
-      min-width: 24px;
-    }
-
-    .drum-button:hover {
-      background: rgba(0, 0, 0, 0.05);
-    }
-
-    .drum-button.active {
-      background: #111111;
-      color: #f7f7f7;
-      border-color: #111111;
-      transform: translateY(1px);
-    }
 
     .drum-select {
       font-size: 10px;
@@ -944,7 +901,6 @@
       </div>
 
       <div class="mode-selectors" id="mode-selectors">
-        <button class="synth-mute-button" id="synth-mute">m</button>
         <select class="mode-selector" id="synth-mode">
           <option value="bass">bass</option>
           <option value="arp">arp</option>
@@ -981,7 +937,6 @@
       <div class="drums">
         <div class="drum-lane" data-part="kick">
           <div class="drum-header">
-            <button class="drum-button" data-part="kick">m</button>
             <select class="drum-select" data-part="kick">
               <option value="1">kick 1</option>
               <option value="2">kick 2</option>
@@ -994,7 +949,6 @@
 
         <div class="drum-lane" data-part="snare">
           <div class="drum-header">
-            <button class="drum-button" data-part="snare">m</button>
             <select class="drum-select" data-part="snare">
               <option value="1">snare 1</option>
               <option value="2">snare 2</option>
@@ -1007,7 +961,6 @@
 
         <div class="drum-lane" data-part="ch">
           <div class="drum-header">
-            <button class="drum-button" data-part="ch">m</button>
             <select class="drum-select" data-part="ch">
               <option value="1">ch 1</option>
               <option value="2">ch 2</option>
@@ -1020,7 +973,6 @@
 
         <div class="drum-lane" data-part="oh">
           <div class="drum-header">
-            <button class="drum-button" data-part="oh">m</button>
             <select class="drum-select" data-part="oh">
               <option value="1">oh 1</option>
               <option value="2">oh 2</option>
@@ -1033,7 +985,6 @@
 
         <div class="drum-lane" data-part="perc">
           <div class="drum-header">
-            <button class="drum-button" data-part="perc">m</button>
             <select class="drum-select" data-part="perc">
               <option value="1">perc 1</option>
               <option value="2">perc 2</option>
@@ -1109,12 +1060,12 @@
   <div class="tooltip-dialogue" id="tooltip-dialogue">
     <button class="tooltip-close" id="tooltip-close">×</button>
     <p><strong>How to Use:</strong></p>
-    <p><strong>Synth & Controls:</strong> Play piano or use keyboard (desktop) to trigger saw wave synth. Scale selectors choose root note and major/minor. Octave buttons shift pitch. Switch between "bass" and "arp" modes. "m" button mutes current mode.</p>
+    <p><strong>Synth & Controls:</strong> Play piano or use keyboard (desktop) to trigger saw wave synth. Scale selectors choose root note and major/minor. Octave buttons shift pitch. Switch between "bass" and "arp" modes.</p>
     <p class="keyboard-mode-info"><strong>Keyboard Mode (Desktop Only):</strong> A-S-D-F-G-H-J-K (white keys), W-E-T-Y-U (black keys). Z/X shift octave. Visual piano keys light up. Works with recording.</p>
     <p><strong>Bass Mode:</strong> Play notes directly. "rec bass" records 64-step sequence (bars 1-4). 4-count metronome if playing.</p>
     <p><strong>Arp Mode:</strong> Hold key to trigger live arpeggiator. "rec arp" records pattern. Modes: up, down, up+1, down-1, rand, rand+-1. Latch keeps arp playing after release.</p>
     <p><strong>Transport:</strong> "play" restarts from bar 1.1. "stop" halts playback.</p>
-    <p><strong>Drums:</strong> 5 sequencers (kick, snare, ch, oh, perc) with 16 steps. Click grid to toggle. 4 sound variants per part. "m" buttons mute parts.</p>
+    <p><strong>Drums:</strong> 5 sequencers (kick, snare, ch, oh, perc) with 16 steps. Click grid to toggle. 4 sound variants per part. Selectors centered over grids.</p>
     <p><strong>Mixer:</strong> Vertical sliders control volume for each part (bs, arp, ki, sn, ch, oh, pc). "m" buttons below sliders mute individual channels.</p>
     <p><strong>Note:</strong> Keep ringer on for audio. Bass and arp play simultaneously. Have fun!</p>
   </div>
@@ -1282,9 +1233,6 @@
       let arpLatch = false; // When true, arp continues playing after key release
       // Removed arpRecordingInterval - arp now records the actual notes played by live arp
       
-      // Mute states for bass and arp
-      let bassMuted = false;
-      let arpMuted = false;
 
       let transportStartTime = null;
       let transportRunning = false;
@@ -1525,7 +1473,6 @@
       const arpModeSelect = document.getElementById("arp-mode");
       const arpLatchBtn = document.getElementById("arp-latch");
       const modeSelectors = document.getElementById("mode-selectors");
-      const synthMuteBtn = document.getElementById("synth-mute");
 
       function updateModeUI() {
         const recBtn = document.getElementById("seq-record");
@@ -1554,12 +1501,6 @@
               recBtn.textContent = "rec bass";
             }
           }
-        }
-        
-        // Update mute button state based on current mode
-        if (synthMuteBtn) {
-          const isMuted = currentMode === "arp" ? arpMuted : bassMuted;
-          synthMuteBtn.classList.toggle("active", isMuted);
         }
         
         // Update latch button state
@@ -1597,18 +1538,6 @@
         });
       }
 
-      // Mute button for bass/arp
-      if (synthMuteBtn) {
-        synthMuteBtn.addEventListener("click", () => {
-          // Toggle mute for current mode
-          if (currentMode === "arp") {
-            arpMuted = !arpMuted;
-          } else {
-            bassMuted = !bassMuted;
-          }
-          updateModeUI();
-        });
-      }
 
       updateModeUI();
 
@@ -1893,13 +1822,6 @@
         perc: new Array(16).fill(false)
       };
 
-      const drumMuted = {
-        kick: false,
-        snare:false,
-        ch:   false,
-        oh:   false,
-        perc: false
-      };
 
       // Part mixer gain levels (0-1, where 1 = 100%)
       const partGain = {
@@ -1961,7 +1883,6 @@
         const localStep = globalStep % 16;
 
         for (const part of drumParts) {
-          if (drumMuted[part]) continue;
           if (!drumPatterns[part][localStep]) continue;
 
           const variant = drumVariantIndex[part] || 0;
@@ -2307,8 +2228,6 @@
       function scheduleArpForStep(globalStep, when) {
         // Play arp if pattern exists, independent of recording state
         // This allows arp to play while bass is being recorded and vice versa
-        // Check if arp is muted
-        if (arpMuted) return;
         
         const localStep = globalStep % TOTAL_STEPS;
         
@@ -2331,8 +2250,6 @@
       function scheduleSynthForStep(globalStep, when) {
         // Play bass if pattern exists, independent of recording state
         // This allows bass to play while arp is being recorded and vice versa
-        // Check if bass is muted
-        if (bassMuted) return;
         
         const localStep = globalStep % TOTAL_STEPS;
         const evt = synthPattern[localStep];
@@ -2759,7 +2676,6 @@
 
       // --- DOM: drums grid & controls ---
       const drumGrids = {};
-      const drumButtons = {};
       const drumSelects = {};
 
       function buildDrumGrid(part) {
@@ -2786,17 +2702,6 @@
 
       drumParts.forEach((part) => {
         buildDrumGrid(part);
-        const btn = document.querySelector(`.drum-button[data-part="${part}"]`);
-        if (btn) {
-          drumButtons[part] = btn;
-          // Initialize button state: white = not muted (active), black = muted
-          // active class = muted (black)
-          btn.classList.toggle("active", drumMuted[part]);
-          btn.addEventListener("click", () => {
-            drumMuted[part] = !drumMuted[part];
-            btn.classList.toggle("active", drumMuted[part]);
-          });
-        }
         const sel = document.querySelector(`.drum-select[data-part="${part}"]`);
         if (sel) {
           drumSelects[part] = sel;
