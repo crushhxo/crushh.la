@@ -1221,9 +1221,12 @@
       let arpPattern = new Array(TOTAL_STEPS).fill(null);
       let savedArpPattern = null;
       let arpOctaveOffset = 2; // Arp starts at +2 octaves (highest bass octave) and can go up/down from there
-      let liveArpInterval = null; // For live arp when holding key
+      let liveArpInterval = null; // For live arp when holding key (fallback when transport not running)
       let liveArpRootNote = null; // Current held note for live arp
       let arpLatch = false; // When true, arp continues playing after key release
+      let liveArpNotes = []; // Generated arp notes for current root note
+      let liveArpIndex = 0; // Current position in arp sequence
+      let liveArpLastScheduledGlobalStep = -1; // Last global step we scheduled arp for (to avoid double-scheduling)
       // Removed arpRecordingInterval - arp now records the actual notes played by live arp
       
 
@@ -1273,6 +1276,17 @@
         globalStepCounter = 0;
         nextStepTime = transportStartTime;
         lastQuarterVisual = null;
+        
+        // If arp is latched, switch from interval to transport sync
+        if (arpLatch && liveArpRootNote && liveArpNotes.length > 0) {
+          if (liveArpInterval) {
+            clearInterval(liveArpInterval);
+            liveArpInterval = null;
+          }
+          liveArpLastScheduledGlobalStep = -1;
+          // Reset arp index to start fresh with transport
+          liveArpIndex = 0;
+        }
 
         if (!stepTimer) {
           stepTimer = setInterval(() => {
@@ -1299,6 +1313,13 @@
               scheduleDrumsForStep(localStep, nextStepTime);
               scheduleSynthForStep(localStep, nextStepTime);
               scheduleArpForStep(localStep, nextStepTime);
+              
+              // Schedule live arp if latched and synced to transport
+              // Use globalStepCounter to avoid double-scheduling the same step
+              if (arpLatch && liveArpRootNote && liveArpNotes.length > 0 && globalStepCounter !== liveArpLastScheduledGlobalStep) {
+                scheduleLiveArpForStep(localStep, nextStepTime);
+                liveArpLastScheduledGlobalStep = globalStepCounter;
+              }
 
               // Increment AFTER scheduling so step 0 plays at transportStartTime
               globalStepCounter++;
@@ -1322,6 +1343,14 @@
         // Clear sequencer voice when transport stops
         sequencerVoice = null;
         lastSequencerFreq = null;
+        
+        // If arp is latched, switch from transport sync to interval
+        if (arpLatch && liveArpRootNote && liveArpNotes.length > 0 && !liveArpInterval) {
+          // Restart arp with interval-based timing by calling startLiveArp again
+          // This will set up the interval-based timing
+          const rootNote = liveArpRootNote;
+          startLiveArp(rootNote);
+        }
       }
 
       // --- SCALE: Dynamic scale system ---
@@ -1526,6 +1555,63 @@
           // If turning latch off and arp is playing, stop it
           if (!arpLatch && liveArpRootNote) {
             stopLiveArp();
+          } else if (arpLatch && liveArpRootNote && liveArpNotes.length > 0) {
+            // If turning latch on and arp is playing, switch to appropriate timing
+            if (transportRunning) {
+              // Switch to transport sync
+              if (liveArpInterval) {
+                clearInterval(liveArpInterval);
+                liveArpInterval = null;
+              }
+              liveArpLastScheduledGlobalStep = -1;
+              liveArpIndex = 0;
+            } else {
+              // Switch to interval-based timing
+              if (!liveArpInterval) {
+                const ctx = getAudio();
+                if (ctx) {
+                  const intervalMs = STEP_DUR * 1000;
+                  const rootNote = liveArpRootNote;
+                  
+                  const playNextNote = () => {
+                    if (!liveArpRootNote || liveArpRootNote !== rootNote || (transportRunning && arpLatch)) {
+                      if (liveArpInterval) {
+                        clearInterval(liveArpInterval);
+                        liveArpInterval = null;
+                      }
+                      return;
+                    }
+                    
+                    const note = liveArpNotes[liveArpIndex % liveArpNotes.length];
+                    const freq = getNoteFrequency(note);
+                    if (freq) {
+                      const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+                      const now = ctx.currentTime;
+                      createArpVoice(adjustedFreq, now);
+                      
+                      if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
+                        const elapsedFromRecStart = Math.max(0, now - recStartTime);
+                        const stepFloat = elapsedFromRecStart / STEP_DUR;
+                        let localStart = Math.round(stepFloat);
+                        const step0Threshold = STEP_DUR * 0.75;
+                        if (elapsedFromRecStart <= step0Threshold) {
+                          localStart = 0;
+                        }
+                        localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
+                        
+                        if (now < recEndTime && localStart < TOTAL_STEPS) {
+                          arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
+                        }
+                      }
+                    }
+                    liveArpIndex++;
+                  };
+                  
+                  liveArpInterval = setInterval(playNextNote, intervalMs);
+                  playNextNote();
+                }
+              }
+            }
           }
           updateModeUI();
         });
@@ -1654,68 +1740,78 @@
         const previousRootNote = liveArpRootNote;
         liveArpRootNote = rootNote;
         
-        // Start arp immediately
+        // Generate arp notes
         const arpNotes = generateArpNotes(rootNote, currentArpMode || "up");
         if (arpNotes.length === 0) return;
         
-        let arpIndex = 0;
-        const noteDuration = STEP_DUR; // 16th note timing
+        // Store arp notes and reset index
+        liveArpNotes = arpNotes;
+        liveArpIndex = 0;
+        liveArpLastScheduledGlobalStep = -1;
         
-        const playNextNote = () => {
-          // Only play if we're still on the same root note
-          if (!liveArpRootNote || liveArpRootNote !== rootNote) {
-            if (liveArpInterval) {
-              clearInterval(liveArpInterval);
-              liveArpInterval = null;
-            }
-            return;
-          }
-          
-          const note = arpNotes[arpIndex % arpNotes.length];
-          const freq = getNoteFrequency(note);
-          if (freq) {
-            // Apply arp octave offset (separate from bass)
-            // This shifts the whole recording up/down when octave buttons are pressed
-            const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
-            const now = ctx.currentTime;
-            createArpVoice(adjustedFreq, now);
-            
-            // Record the actual arp note being played if we're recording
-            if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
-              const elapsedFromRecStart = Math.max(0, now - recStartTime);
-              const stepFloat = elapsedFromRecStart / STEP_DUR;
-              let localStart = Math.round(stepFloat);
-              const step0Threshold = STEP_DUR * 0.75;
-              if (elapsedFromRecStart <= step0Threshold) {
-                localStart = 0;
-              }
-              localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
-              
-              // Only record if we haven't exceeded the recording end time
-              if (now < recEndTime && localStart < TOTAL_STEPS) {
-                // Record the actual note being played, not the root
-                arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
-              }
-            }
-          }
-          arpIndex++;
-        };
+        // Choose between transport-synced and interval-based scheduling
+        const useTransportSync = transportRunning && arpLatch;
         
-        // Start arp - when switching notes, don't play immediately to avoid root note outside of arp
-        // This prevents the "root note once outside of arpeggiating" issue when switching keys
-        const intervalMs = STEP_DUR * 1000;
-        const wasSwitchingNotes = wasDifferentNote && previousRootNote !== null;
-        
-        // Always start the interval
-        liveArpInterval = setInterval(playNextNote, intervalMs);
-        
-        if (wasSwitchingNotes) {
-          // When switching notes, don't play first note immediately
-          // Let the interval handle the first note to avoid root note playing outside of arp sequence
-          // This prevents the "root note once outside of arpeggiating" issue
+        if (useTransportSync) {
+          // When transport is running and arp is latched, use transport timing
+          // Notes will be scheduled in the transport loop via scheduleLiveArpForStep
+          // Don't use setInterval - transport will handle timing
         } else {
-          // Starting fresh or same note in random mode - play immediately
-          playNextNote();
+          // When transport is not running or arp is not latched, use setInterval
+          const intervalMs = STEP_DUR * 1000;
+          const wasSwitchingNotes = wasDifferentNote && previousRootNote !== null;
+          
+          const playNextNote = () => {
+            // Only play if we're still on the same root note and not using transport sync
+            if (!liveArpRootNote || liveArpRootNote !== rootNote || (transportRunning && arpLatch)) {
+              if (liveArpInterval) {
+                clearInterval(liveArpInterval);
+                liveArpInterval = null;
+              }
+              return;
+            }
+            
+            const note = liveArpNotes[liveArpIndex % liveArpNotes.length];
+            const freq = getNoteFrequency(note);
+            if (freq) {
+              // Apply arp octave offset (separate from bass)
+              // This shifts the whole recording up/down when octave buttons are pressed
+              const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+              const now = ctx.currentTime;
+              createArpVoice(adjustedFreq, now);
+              
+              // Record the actual arp note being played if we're recording
+              if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
+                const elapsedFromRecStart = Math.max(0, now - recStartTime);
+                const stepFloat = elapsedFromRecStart / STEP_DUR;
+                let localStart = Math.round(stepFloat);
+                const step0Threshold = STEP_DUR * 0.75;
+                if (elapsedFromRecStart <= step0Threshold) {
+                  localStart = 0;
+                }
+                localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
+                
+                // Only record if we haven't exceeded the recording end time
+                if (now < recEndTime && localStart < TOTAL_STEPS) {
+                  // Record the actual note being played, not the root
+                  arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
+                }
+              }
+            }
+            liveArpIndex++;
+          };
+          
+          // Start the interval
+          liveArpInterval = setInterval(playNextNote, intervalMs);
+          
+          if (wasSwitchingNotes) {
+            // When switching notes, don't play first note immediately
+            // Let the interval handle the first note to avoid root note playing outside of arp sequence
+            // This prevents the "root note once outside of arpeggiating" issue
+          } else {
+            // Starting fresh or same note in random mode - play immediately
+            playNextNote();
+          }
         }
       }
       
@@ -2256,6 +2352,45 @@
           const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
           createArpVoice(adjustedFreq, when);
         }
+      }
+      
+      function scheduleLiveArpForStep(globalStep, when) {
+        // Schedule live arp note when latched and synced to transport
+        if (!liveArpRootNote || liveArpNotes.length === 0) return;
+        
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Play the current arp note
+        const note = liveArpNotes[liveArpIndex % liveArpNotes.length];
+        const freq = getNoteFrequency(note);
+        if (freq) {
+          // Apply arp octave offset
+          const adjustedFreq = freq * Math.pow(2, arpOctaveOffset);
+          createArpVoice(adjustedFreq, when);
+          
+          // Record the actual arp note being played if we're recording
+          // Use 'when' (scheduled time) for accurate recording timing
+          if (arpRecState === "recording" && recStartTime !== null && recEndTime !== null) {
+            const elapsedFromRecStart = Math.max(0, when - recStartTime);
+            const stepFloat = elapsedFromRecStart / STEP_DUR;
+            let localStart = Math.round(stepFloat);
+            const step0Threshold = STEP_DUR * 0.75;
+            if (elapsedFromRecStart <= step0Threshold) {
+              localStart = 0;
+            }
+            localStart = Math.max(0, Math.min(localStart, TOTAL_STEPS - 1));
+            
+            // Only record if we haven't exceeded the recording end time
+            if (when < recEndTime && localStart < TOTAL_STEPS) {
+              // Record the actual note being played, not the root
+              arpPattern[localStart] = { rootNote: note, arpMode: currentArpMode };
+            }
+          }
+        }
+        
+        // Advance to next note in sequence
+        liveArpIndex++;
       }
 
       function scheduleSynthForStep(globalStep, when) {
@@ -2977,6 +3112,17 @@
             globalStepCounter = 0;
             nextStepTime = transportStartTime;
             lastQuarterVisual = null;
+            
+            // If arp is latched, switch from interval to transport sync
+            if (arpLatch && liveArpRootNote && liveArpNotes.length > 0) {
+              if (liveArpInterval) {
+                clearInterval(liveArpInterval);
+                liveArpInterval = null;
+              }
+              liveArpLastScheduledGlobalStep = -1;
+              // Reset arp index to start fresh with transport
+              liveArpIndex = 0;
+            }
 
             if (!stepTimer) {
               stepTimer = setInterval(() => {
@@ -3001,6 +3147,13 @@
                   scheduleDrumsForStep(localStep, nextStepTime);
                   scheduleSynthForStep(localStep, nextStepTime);
                   scheduleArpForStep(localStep, nextStepTime);
+                  
+                  // Schedule live arp if latched and synced to transport
+                  // Use globalStepCounter to avoid double-scheduling the same step
+                  if (arpLatch && liveArpRootNote && liveArpNotes.length > 0 && globalStepCounter !== liveArpLastScheduledGlobalStep) {
+                    scheduleLiveArpForStep(localStep, nextStepTime);
+                    liveArpLastScheduledGlobalStep = globalStepCounter;
+                  }
 
                   // Increment AFTER scheduling so step 0 plays at transportStartTime
                   globalStepCounter++;
