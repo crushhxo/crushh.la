@@ -1083,7 +1083,8 @@
         if (!ctx) return;
         const now = ctx.currentTime;
 
-        transportStartTime = now + 0.15;
+        // Start immediately with minimal delay for audio scheduling
+        transportStartTime = now + 0.05;
         transportRunning = true;
 
         // Start at step 0, schedule it at transportStartTime
@@ -2377,7 +2378,10 @@
             if (stopBtn) stopBtn.classList.add("active");
             return;
           }
-          await loadDrumBuffers(ctx);
+          
+          // Load drum buffers in background - don't wait for them to start transport
+          // This ensures immediate playback on first load
+          loadDrumBuffers(ctx).catch(e => console.warn("Error loading drums:", e));
 
           // reset pattern playback if already running
           stopTransport();
