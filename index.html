@@ -678,6 +678,9 @@
       accent-color: #e0e0e0; /* Override browser accent color */
       /* Force Chrome to respect custom styling */
       -webkit-tap-highlight-color: transparent;
+      /* Prevent Chrome from hiding thumb until interaction */
+      -webkit-transition: none;
+      transition: none;
     }
 
     /* Webkit (Chrome, Safari) - Track */
@@ -751,8 +754,59 @@
       transform: none !important;
       -webkit-transform: none !important;
       /* Force visibility - Chrome sometimes hides thumb until hover */
+      /* These must be at the end to override any Chrome defaults */
       opacity: 1 !important;
       visibility: visible !important;
+      display: block !important;
+      /* Prevent Chrome from hiding thumb with transitions */
+      -webkit-transition: none !important;
+      transition: none !important;
+      /* Ensure thumb is always rendered */
+      will-change: auto !important;
+      z-index: 1 !important;
+      pointer-events: auto !important;
+    }
+
+    /* Ensure thumb is visible on hover and always - match default state */
+    .mixer-slider:hover::-webkit-slider-thumb,
+    .mixer-slider:focus::-webkit-slider-thumb,
+    .mixer-slider:active::-webkit-slider-thumb,
+    .mixer-slider-active::-webkit-slider-thumb {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: block !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      border: 1px solid #979797 !important;
+    }
+
+    /* Chrome-specific: Force thumb visibility in default state (not hover/focus/active) */
+    /* This overrides Chrome's default behavior of hiding thumb until interaction */
+    .mixer-slider:not(:hover):not(:focus):not(:active)::-webkit-slider-thumb,
+    input[type="range"].mixer-slider:not(:hover):not(:focus):not(:active)::-webkit-slider-thumb {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: block !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      background-image: none !important;
+      border: 1px solid #979797 !important;
+      /* Override any Chrome default that might hide the thumb */
+      filter: none !important;
+      -webkit-filter: none !important;
+      transform: none !important;
+      -webkit-transform: none !important;
+      pointer-events: auto !important;
+      -webkit-transition: none !important;
+      transition: none !important;
+    }
+
+    /* Additional override with maximum specificity for Chrome */
+    input.mixer-slider.mixer-slider-active::-webkit-slider-thumb,
+    input[type="range"].mixer-slider.mixer-slider-active::-webkit-slider-thumb {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: block !important;
     }
 
     /* Additional Chrome override - runnable track */
@@ -943,6 +997,16 @@
     @keyframes trailFade {
       0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
       100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.7); }
+    }
+
+    /* FINAL Chrome override - Force thumb visibility with maximum specificity */
+    /* This must be at the end to override any Chrome defaults */
+    input[type="range"].mixer-slider::-webkit-slider-thumb,
+    input.mixer-slider::-webkit-slider-thumb,
+    .mixer-slider::-webkit-slider-thumb {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: block !important;
     }
   </style>
 </head>
@@ -2877,6 +2941,32 @@
           
           // Force Chrome to respect our styling by setting accent color
           slider.style.setProperty('accent-color', '#e0e0e0', 'important');
+          // Force Chrome to show thumb immediately
+          slider.style.setProperty('-webkit-appearance', 'slider-vertical', 'important');
+          // Add a class to ensure thumb is always visible
+          slider.classList.add('mixer-slider-active');
+          
+          // Force Chrome to render thumb by manipulating the slider
+          // Chrome sometimes hides thumb until first interaction, so trigger a fake interaction
+          const forceThumbVisibility = () => {
+            // Trigger a mouseenter/mouseleave to force Chrome to render the thumb
+            const event = new MouseEvent('mouseenter', { bubbles: true, cancelable: true });
+            slider.dispatchEvent(event);
+            setTimeout(() => {
+              const leaveEvent = new MouseEvent('mouseleave', { bubbles: true, cancelable: true });
+              slider.dispatchEvent(leaveEvent);
+            }, 10);
+          };
+          
+          // Trigger immediately and after delays to ensure Chrome renders
+          setTimeout(forceThumbVisibility, 0);
+          setTimeout(forceThumbVisibility, 50);
+          setTimeout(forceThumbVisibility, 200);
+          
+          // Also trigger on any interaction to ensure thumb stays visible
+          ['mouseenter', 'mouseleave', 'mousedown', 'touchstart'].forEach(eventType => {
+            slider.addEventListener(eventType, forceThumbVisibility, { once: true });
+          });
           
           slider.addEventListener("input", (e) => {
             partGain[part] = parseFloat(e.target.value) / 100;
