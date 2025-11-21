@@ -621,65 +621,136 @@
       grid-row: 3; /* Same row as perc */
       justify-self: end; /* Align to right */
       display: flex;
-      gap: 6px;
+      gap: 1px;
       justify-content: center;
       align-items: flex-start;
-      width: 100%;
+      width: 120px; /* Match drum sequencer width exactly */
       max-width: 120px;
+      box-sizing: border-box;
     }
 
     .mixer-channel {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 3px;
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .mixer-label {
+      font-size: 9px;
+      text-transform: lowercase;
+      color: #111111;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+      height: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      flex-shrink: 0;
     }
 
     .mixer-slider-container {
-      height: 73px; /* Match drum grid height */
+      height: 73px; /* Match drum grid height exactly */
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
+      width: 100%;
+      flex-shrink: 0;
     }
 
     .mixer-slider {
       -webkit-appearance: slider-vertical;
       appearance: slider-vertical;
-      width: 8px;
+      writing-mode: bt-lr; /* IE */
+      width: 4px;
       height: 73px;
-      background: #e0e0e0; /* Same grey as step indicator downbeats */
-      border-radius: 4px;
+      background: transparent;
+      border: none;
       outline: none;
       cursor: pointer;
-      writing-mode: bt-lr; /* IE */
+      margin: 0;
+      padding: 0;
+      accent-color: #e0e0e0; /* Override browser accent color */
     }
 
+    /* Webkit (Chrome, Safari) - Track */
+    .mixer-slider::-webkit-slider-track {
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      width: 4px !important;
+      height: 73px !important;
+      min-height: 73px !important;
+      max-height: 73px !important;
+      background: #e0e0e0 !important;
+      background-color: #e0e0e0 !important;
+      border-radius: 2px;
+      border: none !important;
+      -webkit-box-shadow: none !important;
+      box-shadow: none !important;
+    }
+
+    /* Webkit (Chrome, Safari) - Thumb - Force override browser defaults */
     .mixer-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 8px;
-      height: 16px;
-      background: #ffffff;
-      border-radius: 4px; /* Skinny vertical oval */
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      width: 4px !important;
+      height: 16px !important;
+      min-height: 16px !important;
+      max-height: 16px !important;
+      background: #ffffff !important;
+      border-radius: 2px 2px 2px 2px !important; /* Skinny vertical oval - taller than wide */
       cursor: pointer;
-      border: none;
-      margin-left: -2px;
+      border: none !important;
+      margin-left: 0;
+      box-shadow: none !important;
+      -webkit-box-shadow: none !important;
     }
 
+    /* Additional Chrome override */
+    .mixer-slider::-webkit-slider-runnable-track {
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      width: 4px !important;
+      height: 73px !important;
+      min-height: 73px !important;
+      max-height: 73px !important;
+      background: #e0e0e0 !important;
+      background-color: #e0e0e0 !important;
+      border-radius: 2px;
+      border: none !important;
+      -webkit-box-shadow: none !important;
+      box-shadow: none !important;
+    }
+
+    /* Firefox - Track */
+    .mixer-slider::-moz-range-track {
+      width: 4px;
+      height: 73px;
+      background: #e0e0e0;
+      border-radius: 2px;
+      border: none;
+    }
+
+    /* Firefox - Thumb */
     .mixer-slider::-moz-range-thumb {
-      width: 8px;
+      width: 4px;
       height: 16px;
       background: #ffffff;
-      border-radius: 4px; /* Skinny vertical oval */
+      border-radius: 2px; /* Skinny vertical oval */
       cursor: pointer;
       border: none;
+      box-shadow: none;
     }
 
     .mixer-mute-button {
       font-size: 10px;
       text-transform: lowercase;
-      padding: 3px 6px;
+      padding: 0;
       border-radius: 2px; /* Square with slight rounding */
       border: 1px solid rgba(0, 0, 0, 0.25);
       background: rgba(0, 0, 0, 0.02);
@@ -687,12 +758,12 @@
       cursor: pointer;
       letter-spacing: 0.08em;
       transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
-      min-width: 20px;
-      width: 20px;
-      height: 20px;
+      width: 16px;
+      height: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
     }
 
     .mixer-mute-button:hover {
@@ -984,47 +1055,54 @@
 
         <!-- Part Mixer -->
         <div class="part-mixer">
+          <div class="mixer-channel" data-part="bass">
+            <div class="mixer-label">bs</div>
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="bass" min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="bass">m</button>
+          </div>
+          <div class="mixer-channel" data-part="arp">
+            <div class="mixer-label">arp</div>
+            <div class="mixer-slider-container">
+              <input type="range" class="mixer-slider" data-part="arp" min="0" max="100" value="100">
+            </div>
+            <button class="mixer-mute-button" data-part="arp">m</button>
+          </div>
           <div class="mixer-channel" data-part="kick">
+            <div class="mixer-label">ki</div>
             <div class="mixer-slider-container">
               <input type="range" class="mixer-slider" data-part="kick" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="kick">m</button>
           </div>
           <div class="mixer-channel" data-part="snare">
+            <div class="mixer-label">sn</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="snare"  min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="snare" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="snare">m</button>
           </div>
           <div class="mixer-channel" data-part="ch">
+            <div class="mixer-label">ch</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="ch"  min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="ch" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="ch">m</button>
           </div>
           <div class="mixer-channel" data-part="oh">
+            <div class="mixer-label">oh</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="oh"  min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="oh" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="oh">m</button>
           </div>
           <div class="mixer-channel" data-part="perc">
+            <div class="mixer-label">pc</div>
             <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="perc"  min="0" max="100" value="100">
+              <input type="range" class="mixer-slider" data-part="perc" min="0" max="100" value="100">
             </div>
             <button class="mixer-mute-button" data-part="perc">m</button>
-          </div>
-          <div class="mixer-channel" data-part="bass">
-            <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="bass"  min="0" max="100" value="100">
-            </div>
-            <button class="mixer-mute-button" data-part="bass">m</button>
-          </div>
-          <div class="mixer-channel" data-part="arp">
-            <div class="mixer-slider-container">
-              <input type="range" class="mixer-slider" data-part="arp"  min="0" max="100" value="100">
-            </div>
-            <button class="mixer-mute-button" data-part="arp">m</button>
           </div>
         </div>
       </div>
