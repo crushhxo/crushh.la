@@ -3109,6 +3109,28 @@
         }
 
         const key = e.key.toLowerCase();
+        
+        // Octave controls: Z = down, X = up
+        if (key === 'z' || key === 'x') {
+          e.preventDefault();
+          if (key === 'x') {
+            // Octave up
+            if (currentMode === "arp") {
+              arpOctaveOffset = Math.min(arpOctaveOffset + 1, 5); // Arp can go higher
+            } else {
+              octaveOffset = Math.min(octaveOffset + 1, 2); // Limit to +2 octaves for bass
+            }
+          } else if (key === 'z') {
+            // Octave down
+            if (currentMode === "arp") {
+              arpOctaveOffset = Math.max(arpOctaveOffset - 1, 0); // Arp can't go below base
+            } else {
+              octaveOffset = Math.max(octaveOffset - 1, -2); // Limit to -2 octaves for bass
+            }
+          }
+          return;
+        }
+        
         if (keyboardMap[key]) {
           e.preventDefault();
           handleKeyboardNoteOn(key);
