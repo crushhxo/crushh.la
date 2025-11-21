@@ -1631,9 +1631,18 @@
       let octaveOffset = 0; // Octave offset: 0 = normal, 1 = +1 octave, -1 = -1 octave
 
       function startLiveArp(rootNote) {
-        // Only restart if the root note has actually changed
-        if (liveArpRootNote === rootNote && liveArpInterval) {
-          return; // Same note, keep playing
+        const ctx = getAudio();
+        if (!ctx) return;
+        
+        // Check if we should restart
+        // For random modes, always restart even if same note to generate new random sequence
+        const isRandomMode = currentArpMode === "rand" || currentArpMode === "rand+-1";
+        const wasDifferentNote = liveArpRootNote !== rootNote;
+        const shouldRestart = wasDifferentNote || !liveArpInterval || isRandomMode;
+        
+        // Only restart if the root note has actually changed, or if it's a random mode
+        if (!shouldRestart) {
+          return; // Same note, keep playing (non-random modes only)
         }
         
         // Root note changed or starting fresh - restart arp
@@ -1642,9 +1651,8 @@
           liveArpInterval = null;
         }
         
+        const previousRootNote = liveArpRootNote;
         liveArpRootNote = rootNote;
-        const ctx = getAudio();
-        if (!ctx) return;
         
         // Start arp immediately
         const arpNotes = generateArpNotes(rootNote, currentArpMode || "up");
@@ -1693,12 +1701,22 @@
           arpIndex++;
         };
         
-        // Play first note immediately
-        playNextNote();
-        
-        // Then continue at 16th note intervals
+        // Start arp - when switching notes, don't play immediately to avoid root note outside of arp
+        // This prevents the "root note once outside of arpeggiating" issue when switching keys
         const intervalMs = STEP_DUR * 1000;
+        const wasSwitchingNotes = wasDifferentNote && previousRootNote !== null;
+        
+        // Always start the interval
         liveArpInterval = setInterval(playNextNote, intervalMs);
+        
+        if (wasSwitchingNotes) {
+          // When switching notes, don't play first note immediately
+          // Let the interval handle the first note to avoid root note playing outside of arp sequence
+          // This prevents the "root note once outside of arpeggiating" issue
+        } else {
+          // Starting fresh or same note in random mode - play immediately
+          playNextNote();
+        }
       }
       
       function stopLiveArp() {
