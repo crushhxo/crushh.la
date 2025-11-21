@@ -664,8 +664,8 @@
     }
 
     .mixer-slider {
-      -webkit-appearance: none;
-      appearance: none;
+      -webkit-appearance: slider-vertical;
+      appearance: slider-vertical;
       writing-mode: bt-lr; /* IE */
       width: 4px;
       height: 73px;
@@ -732,11 +732,11 @@
       -webkit-border-top-right-radius: 2px !important;
       -webkit-border-bottom-left-radius: 2px !important;
       -webkit-border-bottom-right-radius: 2px !important;
-      /* Remove all borders, outlines, and shadows */
-      border: 0 !important;
+      /* Add border for visibility - match sequencer cell border */
+      border: 1px solid #979797 !important;
       outline: 0 !important;
-      box-shadow: 0 0 0 0 transparent !important;
-      -webkit-box-shadow: 0 0 0 0 transparent !important;
+      box-shadow: none !important;
+      -webkit-box-shadow: none !important;
       /* Remove margins and padding */
       margin: 0 !important;
       padding: 0 !important;
@@ -789,7 +789,7 @@
       background: #ffffff;
       border-radius: 2px; /* Skinny vertical oval */
       cursor: pointer;
-      border: none;
+      border: 1px solid #979797; /* Match sequencer cell border for visibility */
       box-shadow: none;
     }
 
@@ -2871,14 +2871,8 @@
           // Initialize slider value (top = 100, bottom = 0 for vertical slider)
           slider.value = partGain[part] * 100;
           
-          // Force Chrome to respect our styling by setting style attribute
-          slider.style.setProperty('-webkit-appearance', 'none', 'important');
-          slider.style.setProperty('appearance', 'none', 'important');
+          // Force Chrome to respect our styling by setting accent color
           slider.style.setProperty('accent-color', '#e0e0e0', 'important');
-          // Also set on the thumb via CSS custom property if needed
-          slider.style.setProperty('--thumb-bg', '#ffffff', 'important');
-          slider.style.setProperty('--thumb-width', '4px', 'important');
-          slider.style.setProperty('--thumb-height', '16px', 'important');
           
           slider.addEventListener("input", (e) => {
             partGain[part] = parseFloat(e.target.value) / 100;
