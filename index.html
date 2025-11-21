@@ -563,6 +563,10 @@
         padding: 16px;
         font-size: 11px;
       }
+
+      .keyboard-mode-info {
+        display: none;
+      }
     }
 
     /* drums */
@@ -873,7 +877,7 @@
     <button class="tooltip-close" id="tooltip-close">×</button>
     <p><strong>How to Use:</strong></p>
     <p><strong>Synth & Controls:</strong> Play the piano to trigger a saw wave synth. Use the scale selectors (left) to choose root note and major/minor mode. Octave buttons (right) shift pitch up/down. Switch between "bass" and "arp" modes using the selector. The "m" button mutes the current mode (bass or arp).</p>
-    <p><strong>Keyboard Mode (Desktop Only):</strong> Use your computer keyboard to play the synth. Keys A, S, D, F, G, H, J, K play white keys (C, D, E, F, G, A, B, C). Keys W, E, T, Y, U play black keys (C#, D#, F#, G#, A#). Press Z to shift octave down, X to shift octave up. The active synth mode (bass or arp) responds to keyboard input. Visual piano keys light up as you play. Works with recording - play and record simultaneously.</p>
+    <p class="keyboard-mode-info"><strong>Keyboard Mode (Desktop Only):</strong> Use your computer keyboard to play the synth. Keys A, S, D, F, G, H, J, K play white keys (C, D, E, F, G, A, B, C). Keys W, E, T, Y, U play black keys (C#, D#, F#, G#, A#). Press Z to shift octave down, X to shift octave up. The active synth mode (bass or arp) responds to keyboard input. Visual piano keys light up as you play. Works with recording - play and record simultaneously.</p>
     <p><strong>Bass Mode:</strong> Play notes directly on the piano or keyboard. Click "rec bass" to record a 64-step (4-bar) bass sequence. Recording always starts at bar 1.1 and stops at bar 4.4. If the sequencer is playing, you'll get a 4-count metronome before recording begins.</p>
     <p><strong>Arp Mode:</strong> Hold a key (piano or keyboard) to trigger a live arpeggiator. The arp plays automatically while you hold the key. Click "rec arp" to record the arp pattern for 4 bars. The arp mode selector lets you choose arp direction (up or down).</p>
     <p><strong>Transport:</strong> "play" restarts the sequence from bar 1.1. "stop" halts playback.</p>
