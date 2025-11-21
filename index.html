@@ -805,6 +805,10 @@
         <select class="mode-selector arp-mode-selector" id="arp-mode">
           <option value="up">up</option>
           <option value="down">down</option>
+          <option value="up+1">up +1</option>
+          <option value="down-1">down -1</option>
+          <option value="rand">rand</option>
+          <option value="rand+-1">rand +-1</option>
         </select>
         <button class="arp-latch-button" id="arp-latch">latch</button>
       </div>
@@ -1855,6 +1859,35 @@
         return baseFreq * Math.pow(2, octaveDifference);
       }
 
+      // Helper function to shift a note by an octave
+      function shiftNoteOctave(note, octaveShift) {
+        const noteMatch = note.match(/^([A-G]#?)(\d)$/);
+        if (!noteMatch) return note;
+        const noteName = noteMatch[1];
+        const octave = parseInt(noteMatch[2], 10);
+        return noteName + (octave + octaveShift);
+      }
+
+      // Helper function to get scale notes in a specific octave
+      function getScaleNotesInOctave(octave) {
+        const rootOffset = rootOffsets[currentScaleRoot];
+        const intervals = scaleIntervals[currentScaleMode];
+        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const notesInOctave = [];
+        
+        // Generate scale degrees (semitone values relative to root, modulo 12)
+        const scaleSemitones = intervals.map(interval => (rootOffset + interval) % 12);
+        
+        // For each scale degree, create a note in the specified octave
+        scaleSemitones.forEach(semitone => {
+          const noteName = noteNames[semitone];
+          const note = noteName + octave;
+          notesInOctave.push(note);
+        });
+        
+        return notesInOctave;
+      }
+
       function generateArpNotes(rootNote, mode) {
         if (!rootNote) return [];
         const scaleNotes = generateScaleNotes(currentScaleRoot, currentScaleMode);
@@ -1933,6 +1966,108 @@
               }
             } else {
               notes.push(sortedScaleNotes[scaleIndex]);
+            }
+          }
+        } else if (mode === "up+1") {
+          // Play 4 notes going up, then the same 4 notes one octave up
+          const firstFourNotes = [];
+          for (let i = 0; i < 4; i++) {
+            let scaleIndex = rootIndex + i;
+            
+            if (scaleIndex >= sortedScaleNotes.length) {
+              // Wrap around to next octave
+              const scaleStepsFromRoot = i;
+              const scaleDegreeIndex = scaleStepsFromRoot % sortedScaleNotes.length;
+              const baseNote = sortedScaleNotes[scaleDegreeIndex];
+              
+              // Extract note name and octave, then add one octave
+              const noteMatch = baseNote.match(/^([A-G]#?)(\d)$/);
+              if (noteMatch) {
+                const noteName = noteMatch[1];
+                const octave = parseInt(noteMatch[2], 10);
+                firstFourNotes.push(noteName + (octave + 1));
+              } else {
+                firstFourNotes.push(baseNote);
+              }
+            } else {
+              firstFourNotes.push(sortedScaleNotes[scaleIndex]);
+            }
+          }
+          
+          // Add the first 4 notes
+          notes.push(...firstFourNotes);
+          
+          // Add the same 4 notes shifted up one octave
+          firstFourNotes.forEach(note => {
+            notes.push(shiftNoteOctave(note, 1));
+          });
+        } else if (mode === "down-1") {
+          // Play 4 notes going down, then the same 4 notes one octave down
+          const firstFourNotes = [];
+          for (let i = 0; i < 4; i++) {
+            let scaleIndex = rootIndex - i;
+            
+            if (scaleIndex < 0) {
+              // Wrap around to previous octave
+              const scaleStepsFromRoot = i;
+              const scaleDegreeIndex = ((rootIndex - scaleStepsFromRoot) % sortedScaleNotes.length + sortedScaleNotes.length) % sortedScaleNotes.length;
+              const baseNote = sortedScaleNotes[scaleDegreeIndex];
+              
+              // Extract note name and octave, then subtract one octave
+              const noteMatch = baseNote.match(/^([A-G]#?)(\d)$/);
+              if (noteMatch) {
+                const noteName = noteMatch[1];
+                const octave = parseInt(noteMatch[2], 10);
+                firstFourNotes.push(noteName + (octave - 1));
+              } else {
+                firstFourNotes.push(baseNote);
+              }
+            } else {
+              firstFourNotes.push(sortedScaleNotes[scaleIndex]);
+            }
+          }
+          
+          // Add the first 4 notes
+          notes.push(...firstFourNotes);
+          
+          // Add the same 4 notes shifted down one octave
+          firstFourNotes.forEach(note => {
+            notes.push(shiftNoteOctave(note, -1));
+          });
+        } else if (mode === "rand") {
+          // Randomly select notes from the active octave (root note's octave)
+          const rootMatch = rootNote.match(/^([A-G]#?)(\d)$/);
+          if (rootMatch) {
+            const rootOctave = parseInt(rootMatch[2], 10);
+            const notesInOctave = getScaleNotesInOctave(rootOctave);
+            
+            if (notesInOctave.length > 0) {
+              // Randomly select 4 notes from the active octave
+              for (let i = 0; i < 4; i++) {
+                const randomIndex = Math.floor(Math.random() * notesInOctave.length);
+                notes.push(notesInOctave[randomIndex]);
+              }
+            }
+          }
+        } else if (mode === "rand+-1") {
+          // Randomly select notes from active octave, one octave up, and one octave down
+          const rootMatch = rootNote.match(/^([A-G]#?)(\d)$/);
+          if (rootMatch) {
+            const rootOctave = parseInt(rootMatch[2], 10);
+            const allCandidateNotes = [];
+            
+            // Get notes from root octave, one octave up, and one octave down
+            [-1, 0, 1].forEach(octaveShift => {
+              const notesInOctave = getScaleNotesInOctave(rootOctave + octaveShift);
+              allCandidateNotes.push(...notesInOctave);
+            });
+            
+            if (allCandidateNotes.length > 0) {
+              // Randomly select 4 notes from all candidate notes
+              for (let i = 0; i < 4; i++) {
+                const randomIndex = Math.floor(Math.random() * allCandidateNotes.length);
+                notes.push(allCandidateNotes[randomIndex]);
+              }
             }
           }
         }
