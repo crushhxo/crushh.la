@@ -2979,6 +2979,177 @@
 
       piano.addEventListener("touchend", endTouch, { passive: false });
       piano.addEventListener("touchcancel", endTouch, { passive: false });
+
+      // --- KEYBOARD PIANO ROLL SUPPORT (Ableton-style) ---
+      // Keyboard mapping: Ableton-style layout
+      // White keys: A, S, D, F, G, H, J, K (C, D, E, F, G, A, B, C)
+      // Black keys: W, E, T, Y, U (C#, D#, F#, G#, A#)
+      const keyboardMap = {
+        'a': 'C1',
+        'w': 'C#1',
+        's': 'D1',
+        'e': 'D#1',
+        'd': 'E1',
+        'f': 'F1',
+        't': 'F#1',
+        'g': 'G1',
+        'y': 'G#1',
+        'h': 'A1',
+        'u': 'A#1',
+        'j': 'B1',
+        'k': 'C2'
+      };
+
+      // Track currently pressed keyboard keys to avoid retriggering
+      const pressedKeys = new Set();
+      // Track which raw note is currently playing (for monophonic behavior)
+      let currentKeyboardRawNote = null;
+
+      // Helper to get the visual key element for a note
+      function getKeyElementForNote(note) {
+        return document.querySelector(`.key[data-note="${note}"]`);
+      }
+
+      function handleKeyboardNoteOn(key) {
+        const rawNote = keyboardMap[key.toLowerCase()];
+        if (!rawNote) return;
+        
+        // Don't retrigger if key is already pressed
+        if (pressedKeys.has(key.toLowerCase())) return;
+        pressedKeys.add(key.toLowerCase());
+
+        const mapped = scaleMap[rawNote] || rawNote;
+        
+        // Update current note - this is the note we're playing now
+        const previousNote = currentKeyboardRawNote;
+        currentKeyboardRawNote = rawNote;
+
+        // Update visual key state
+        const keyEl = getKeyElementForNote(rawNote);
+        if (keyEl) {
+          keyEl.classList.add("is-down");
+        }
+
+        // Handle recording - for bass mode, need to end previous note if different
+        const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+        if (currentRecState === "recording" || currentRecState === "count-in") {
+          // For bass mode, if we had a previous note and it's different, end it first (monophonic)
+          if (currentMode !== "arp" && previousNote && previousNote !== rawNote) {
+            const prevMapped = scaleMap[previousNote] || previousNote;
+            recordNoteOff(prevMapped);
+          }
+          recordNoteOn(mapped);
+        }
+
+        // Play the note based on current mode
+        startOrGlideToNote(rawNote);
+      }
+
+      function handleKeyboardNoteOff(key) {
+        const rawNote = keyboardMap[key.toLowerCase()];
+        if (!rawNote) return;
+        
+        // Only handle if this key was actually pressed
+        if (!pressedKeys.has(key.toLowerCase())) return;
+        pressedKeys.delete(key.toLowerCase());
+
+        const mapped = scaleMap[rawNote] || rawNote;
+
+        // Update visual key state
+        const keyEl = getKeyElementForNote(rawNote);
+        if (keyEl) {
+          keyEl.classList.remove("is-down");
+        }
+
+        // Only stop voice and handle recording if this is the currently playing note
+        if (currentKeyboardRawNote === rawNote) {
+          // Handle recording
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          if (currentRecState === "recording" || currentRecState === "count-in") {
+            recordNoteOff(mapped);
+          }
+
+          // Check if there are any other keys still pressed
+          let nextNote = null;
+          for (const pressedKey of pressedKeys) {
+            const note = keyboardMap[pressedKey.toLowerCase()];
+            if (note) {
+              nextNote = note;
+              break; // Use first found pressed key's note
+            }
+          }
+
+          if (nextNote) {
+            // Another key is still pressed - glide to that note
+            currentKeyboardRawNote = nextNote;
+            const nextMapped = scaleMap[nextNote] || nextNote;
+            
+            // Handle recording for the new note
+            const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+            if (currentRecState === "recording" || currentRecState === "count-in") {
+              recordNoteOn(nextMapped);
+            }
+            
+            startOrGlideToNote(nextNote);
+          } else {
+            // No other keys pressed - stop the voice
+            currentKeyboardRawNote = null;
+            stopCurrentVoice();
+          }
+        }
+      }
+
+      // Keyboard event listeners
+      document.addEventListener("keydown", (e) => {
+        // Don't interfere with typing in inputs, textareas, or when modifier keys are held
+        // Also allow Escape key to pass through for tooltip closing
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || 
+            e.ctrlKey || e.metaKey || e.altKey || e.key === "Escape") {
+          return;
+        }
+
+        const key = e.key.toLowerCase();
+        if (keyboardMap[key]) {
+          e.preventDefault();
+          handleKeyboardNoteOn(key);
+        }
+      });
+
+      document.addEventListener("keyup", (e) => {
+        // Don't interfere with typing in inputs or textareas
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+          return;
+        }
+
+        const key = e.key.toLowerCase();
+        if (keyboardMap[key]) {
+          e.preventDefault();
+          handleKeyboardNoteOff(key);
+        }
+      });
+
+      // Clear all pressed keys if focus is lost (prevents stuck notes)
+      window.addEventListener("blur", () => {
+        pressedKeys.forEach(key => {
+          const rawNote = keyboardMap[key.toLowerCase()];
+          if (rawNote) {
+            const keyEl = getKeyElementForNote(rawNote);
+            if (keyEl) {
+              keyEl.classList.remove("is-down");
+            }
+          }
+        });
+        pressedKeys.clear();
+        if (currentKeyboardRawNote) {
+          const mapped = scaleMap[currentKeyboardRawNote] || currentKeyboardRawNote;
+          const currentRecState = currentMode === "arp" ? arpRecState : bassRecState;
+          if ((currentRecState === "recording" || currentRecState === "count-in") && mapped) {
+            recordNoteOff(mapped);
+          }
+          currentKeyboardRawNote = null;
+          stopCurrentVoice();
+        }
+      });
     });
 
     // Drunk-vision cursor trail
@@ -3044,6 +3215,7 @@
         }
       });
     });
+
   </script>
 
 </body>
