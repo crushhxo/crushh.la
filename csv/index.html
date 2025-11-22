@@ -271,23 +271,64 @@
       return null;
     }
 
-    async function uploadFileToLitterbox(file) {
-      const formData = new FormData();
-      formData.append('reqtype', 'fileupload');
-      formData.append('time', EXPIRATION);
-      formData.append('fileToUpload', file);
+    async function uploadFileToLitterbox(file, retries = 3) {
+      let lastError;
+      
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        // Create fresh FormData for each attempt
+        const formData = new FormData();
+        formData.append('reqtype', 'fileupload');
+        formData.append('time', EXPIRATION);
+        formData.append('fileToUpload', file);
+        
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+          
+          const resp = await fetch(LITTERBOX_URL, {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
 
-      const resp = await fetch(LITTERBOX_URL, {
-        method: 'POST',
-        body: formData,
-      });
+          if (!resp.ok) {
+            const errorText = await resp.text().catch(() => '');
+            throw new Error(`HTTP ${resp.status}${errorText ? ': ' + errorText.substring(0, 100) : ''}`);
+          }
 
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`);
+          const text = (await resp.text()).trim();
+          
+          // Validate that we got a URL back
+          if (!text || (!text.startsWith('http://') && !text.startsWith('https://'))) {
+            throw new Error(`Invalid response: ${text.substring(0, 100)}`);
+          }
+          
+          // Log retry success if it wasn't the first attempt
+          if (attempt > 1) {
+            console.log(`Upload succeeded on attempt ${attempt} for ${file.name}`);
+          }
+          
+          return text;
+        } catch (err) {
+          lastError = err;
+          
+          // Don't retry on abort (timeout)
+          if (err.name === 'AbortError') {
+            throw new Error('Upload timeout (60s)');
+          }
+          
+          // Wait before retrying (exponential backoff)
+          if (attempt < retries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+            console.log(`Retrying upload for ${file.name} in ${delay}ms (attempt ${attempt + 1}/${retries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
       }
-
-      const text = (await resp.text()).trim();
-      return text;
+      
+      throw lastError || new Error('Upload failed after retries');
     }
 
     // CSV file selection
@@ -431,23 +472,44 @@
       const imageUrls = [];
       let uploaded = 0;
 
-      // Upload images
+      // Upload images with delay between uploads to avoid rate limiting
       for (let i = 0; i < totalImages; i++) {
         const file = imageFiles[i];
+        
+        // Add delay between uploads (except for the first one)
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+        }
+        
         try {
-          setStatus(`Uploading ${i + 1}/${totalImages}: ${file.name}`);
+          const fileSize = file.size ? ` (${(file.size / 1024 / 1024).toFixed(2)}MB)` : '';
+          setStatus(`Uploading ${i + 1}/${totalImages}: ${file.name}${fileSize}`);
           const url = await uploadFileToLitterbox(file);
           imageUrls.push(url);
           appendOutput(`✓ ${i + 1}/${totalImages}: ${file.name} → ${url}`);
         } catch (err) {
           console.error('Upload failed for', file.name, err);
+          const errorMsg = err.message || 'Unknown error';
           imageUrls.push('');
-          appendOutput(`✗ ${i + 1}/${totalImages}: ERROR uploading ${file.name}`);
+          appendOutput(`✗ ${i + 1}/${totalImages}: ERROR uploading ${file.name} - ${errorMsg}`);
         }
         uploaded += 1;
         setProgress(uploaded, totalImages);
       }
 
+      appendOutput('');
+      
+      // Summary of uploads
+      const successfulUploads = imageUrls.filter(url => url).length;
+      const failedUploads = totalImages - successfulUploads;
+      
+      if (failedUploads > 0) {
+        appendOutput(`⚠️ Upload summary: ${successfulUploads} succeeded, ${failedUploads} failed`);
+        appendOutput('Failed images will have empty Image URL 1 in the CSV.');
+      } else {
+        appendOutput(`✓ All ${successfulUploads} images uploaded successfully`);
+      }
+      
       appendOutput('');
       appendOutput('Applying image URLs to CSV...');
 
@@ -497,11 +559,18 @@
         }
       }
 
+      const failedCount = totalRows - imagesApplied;
       appendOutput(`✓ Applied ${imagesApplied} image URLs to CSV`);
+      if (failedCount > 0) {
+        appendOutput(`⚠️ ${failedCount} rows have empty Image URL 1 (upload failures)`);
+      }
       appendOutput('');
       appendOutput('Processing complete! Click "Download Completed CSV" to save your file.');
 
-      setStatus(`Done. Applied ${imagesApplied} image URLs to ${totalRows} CSV rows.`);
+      const statusMsg = failedCount > 0 
+        ? `Done. Applied ${imagesApplied}/${totalRows} image URLs. ${failedCount} failed uploads.`
+        : `Done. Applied ${imagesApplied} image URLs to ${totalRows} CSV rows.`;
+      setStatus(statusMsg);
       processBtn.disabled = false;
       downloadCsvBtn.disabled = false;
     });
