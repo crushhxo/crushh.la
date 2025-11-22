@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>CSV Images to Links</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -23,6 +24,33 @@
       font-size: 12px;
       color: #9ca3af;
       margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    .upload-section {
+      background: #1f2937;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #374151;
+    }
+    .upload-section h2 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .upload-section p {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .file-info {
+      font-size: 12px;
+      color: #22c55e;
+      margin-top: 8px;
+      display: none;
+    }
+    .file-info.has-file {
+      display: block;
     }
     .buttons {
       display: flex;
@@ -38,13 +66,20 @@
       cursor: pointer;
       background: #3b82f6;
       color: #f9fafb;
+      font-weight: 500;
     }
     button.secondary {
       background: #374151;
     }
+    button.primary {
+      background: #22c55e;
+    }
     button:disabled {
       opacity: 0.5;
       cursor: default;
+    }
+    button:hover:not(:disabled) {
+      opacity: 0.9;
     }
     .status {
       font-size: 13px;
@@ -67,7 +102,7 @@
     }
     textarea {
       width: 100%;
-      height: 180px; /* ~10 lines */
+      height: 180px;
       resize: vertical;
       border-radius: 8px;
       border: 1px solid #374151;
@@ -96,59 +131,95 @@
   <div class="container">
     <h1>CSV Images to Links</h1>
     <p class="hint">
-      Click “Select Folder…” and choose the folder that contains all your item images.
-      They’ll be uploaded directly to Litterbox and you’ll get a list of links to paste into your Google Sheet. Upload links expire after 24h, so make sure to upload your CSV to inventory quickly! Visit the 
-  <a 
-    href="https://help.whatnot.com/hc/en-us/articles/7440530071821-Bulk-import-products-from-a-CSV-file"
-    target="_blank"
-    rel="noopener noreferrer"
-    style="font-weight: bold; color: #ff4d4d; text-decoration: none;"
-  >
-    CSV Help Center article
-  </a> 
-  for the CSV template and inventory upload instructions.
+      Upload your Whatnot inventory CSV and product images. The tool will upload images to Litterbox and automatically add the image URLs to your CSV in the correct order. Upload links expire after 24h, so make sure to upload your completed CSV to inventory quickly! Visit the 
+      <a 
+        href="https://help.whatnot.com/hc/en-us/articles/7440530071821-Bulk-import-products-from-a-CSV-file"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="font-weight: bold; color: #ff4d4d; text-decoration: none;"
+      >
+        CSV Help Center article
+      </a> 
+      for the CSV template and inventory upload instructions.
     </p>
 
-    <div class="buttons">
-      <button id="selectFolderBtn">Select Folder…</button>
-      <button id="copyBtn" disabled>Copy Output</button>
-      <button id="downloadTxtBtn" class="secondary" disabled>Download .txt</button>
+    <!-- CSV Upload Section -->
+    <div class="upload-section">
+      <h2>Step 1: Upload Inventory CSV</h2>
+      <p>Select your Whatnot inventory CSV file with all product information ready for image links.</p>
+      <button id="selectCsvBtn">Select CSV File…</button>
+      <div class="file-info" id="csvFileInfo"></div>
     </div>
 
-    <div class="status" id="status">Ready.</div>
+    <!-- Image Folder Upload Section -->
+    <div class="upload-section">
+      <h2>Step 2: Upload Image Folder</h2>
+      <p>Select the folder containing your product images. Images will be processed in the order they appear in the folder.</p>
+      <button id="selectFolderBtn">Select Folder…</button>
+      <div class="file-info" id="imageFolderInfo"></div>
+    </div>
+
+    <div class="buttons">
+      <button id="processBtn" class="primary" disabled>Process CSV and Images</button>
+      <button id="downloadCsvBtn" class="secondary" disabled>Download Completed CSV</button>
+    </div>
+
+    <div class="status" id="status">Ready. Upload your CSV and image folder to begin.</div>
 
     <div class="progress-wrapper">
       <div class="progress-bar" id="progressBar"></div>
     </div>
 
-    <textarea id="output" placeholder="Uploaded image URLs will appear here (one per line)…" readonly></textarea>
+    <textarea id="output" placeholder="Processing status and results will appear here…" readonly></textarea>
 
     <div class="how-to">
       <strong>How to use:</strong><br /><br />
-      Only supports 1 image per item at a time. Uploads the images in the same order they are inside the folder,
-      so take your photos from first item to last item in the CSV.<br /><br />
-      1. Upload your images to a new local folder, right click, and choose "Sort by &gt; Name" (on Mac, not sure about Windows folder sorting). This is very important for proper image upload order!<br />
-      2. Click “Select Folder…” and choose that folder of images<br />
-      3. Wait for the images to upload<br />
-      4. Copy the output of image links with the copy button<br />
-      5. CMD or CTRL + SHIFT + V to paste the list into your Google Sheet, starting from your first item
+      Only supports 1 image per item. Images are matched to CSV rows in order (1st image → 1st row, 2nd image → 2nd row, etc.). The tool will populate the "Image URL 1" column in your Whatnot CSV.<br /><br />
+      1. Prepare your Whatnot inventory CSV with all product information (the "Image URL 1" column will be populated automatically)<br />
+      2. Upload your images to a local folder and sort by name (right click → "Sort by &gt; Name" on Mac). This ensures proper image order!<br />
+      3. Click "Select CSV File…" and choose your inventory CSV<br />
+      4. Click "Select Folder…" and choose your folder of images<br />
+      5. Click "Process CSV and Images" to upload images to Litterbox and match them to your CSV<br />
+      6. Click "Download Completed CSV" to get your CSV with image URLs added to the "Image URL 1" column
     </div>
 
-    <!-- Folder-only file input -->
+    <!-- Hidden file inputs -->
+    <input id="csvInput" type="file" accept=".csv" />
     <input id="fileInput" type="file" multiple webkitdirectory directory />
   </div>
 
   <script>
+    // DOM elements
+    const selectCsvBtn = document.getElementById('selectCsvBtn');
     const selectFolderBtn = document.getElementById('selectFolderBtn');
-    const copyBtn = document.getElementById('copyBtn');
-    const downloadTxtBtn = document.getElementById('downloadTxtBtn');
+    const processBtn = document.getElementById('processBtn');
+    const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+    const csvInput = document.getElementById('csvInput');
     const fileInput = document.getElementById('fileInput');
     const statusEl = document.getElementById('status');
     const progressBar = document.getElementById('progressBar');
     const outputEl = document.getElementById('output');
+    const csvFileInfo = document.getElementById('csvFileInfo');
+    const imageFolderInfo = document.getElementById('imageFolderInfo');
 
     const LITTERBOX_URL = 'https://litterbox.catbox.moe/resources/internals/api.php';
-    const EXPIRATION = '24h'; // 24h default
+    const EXPIRATION = '24h';
+
+    // State
+    let csvData = null;
+    let csvHeaders = null;
+    let imageColumnIndex = null;
+    let imageFiles = [];
+
+    // Whatnot CSV uses "Image URL 1" as the column name for images
+    const IMAGE_COLUMN_NAME = 'Image URL 1';
+    
+    // Fallback column names to search for if exact match not found
+    const IMAGE_COLUMN_NAMES = [
+      'image url 1', 'image_url_1', 'image url', 'image_url', 'image',
+      'photo url 1', 'photo_url_1', 'photo url', 'photo_url',
+      'picture url 1', 'picture_url_1', 'picture url', 'picture_url'
+    ];
 
     function isImageFile(file) {
       return /\.(jpe?g|png|gif|webp)$/i.test(file.name);
@@ -161,6 +232,43 @@
 
     function setStatus(text) {
       statusEl.textContent = text;
+    }
+
+    function appendOutput(text) {
+      outputEl.value += text + '\n';
+      outputEl.scrollTop = outputEl.scrollHeight;
+    }
+
+    function clearOutput() {
+      outputEl.value = '';
+    }
+
+    function updateProcessButton() {
+      const hasCsv = csvData !== null;
+      const hasImages = imageFiles.length > 0;
+      processBtn.disabled = !(hasCsv && hasImages);
+    }
+
+    function findImageColumn(headers) {
+      if (!headers || !headers.length) return null;
+      
+      // First, try exact match for "Image URL 1" (case insensitive)
+      for (let i = 0; i < headers.length; i++) {
+        const header = (headers[i] || '').trim();
+        if (header.toLowerCase() === IMAGE_COLUMN_NAME.toLowerCase()) {
+          return i;
+        }
+      }
+      
+      // Fallback: search for other common image column names
+      const lowerHeaders = headers.map(h => (h || '').toLowerCase().trim());
+      for (let i = 0; i < lowerHeaders.length; i++) {
+        if (IMAGE_COLUMN_NAMES.includes(lowerHeaders[i])) {
+          return i;
+        }
+      }
+      
+      return null;
     }
 
     async function uploadFileToLitterbox(file) {
@@ -179,92 +287,257 @@
       }
 
       const text = (await resp.text()).trim();
-      return text; // Litterbox returns the URL directly
+      return text;
     }
 
-    async function handleFiles(fileList) {
-      const files = Array.from(fileList).filter(isImageFile);
-      // Sort by name so it matches "Sort by Name" in Finder
+    // CSV file selection
+    selectCsvBtn.addEventListener('click', () => {
+      csvInput.value = '';
+      csvInput.click();
+    });
+
+    csvInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        setStatus('No CSV file selected.');
+        return;
+      }
+
+      setStatus('Reading CSV file...');
+      csvFileInfo.textContent = `✓ ${file.name}`;
+      csvFileInfo.classList.add('has-file');
+
+      try {
+        const text = await file.text();
+        
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          quotes: true, // Handle quoted fields properly
+          complete: (results) => {
+            if (results.errors.length > 0) {
+              console.warn('CSV parsing warnings:', results.errors);
+            }
+
+            csvHeaders = results.meta.fields || (results.data.length > 0 ? Object.keys(results.data[0]) : []);
+            csvData = results.data || [];
+            
+            if (csvData.length === 0) {
+              setStatus('CSV file is empty or has no data rows.');
+              csvFileInfo.classList.remove('has-file');
+              csvData = null;
+              csvHeaders = null;
+              updateProcessButton();
+              return;
+            }
+            
+            // Find image column
+            imageColumnIndex = findImageColumn(csvHeaders);
+            
+            const rowCount = csvData.length;
+            const imageColName = imageColumnIndex !== null 
+              ? csvHeaders[imageColumnIndex] 
+              : 'NOT FOUND';
+            
+            appendOutput(`CSV loaded: ${rowCount} data rows, ${csvHeaders.length} columns`);
+            appendOutput(`Note: First image will map to Row 2 (Item 1) in your CSV`);
+            if (imageColumnIndex !== null) {
+              appendOutput(`✓ Image column found: "${imageColName}"`);
+            } else {
+              appendOutput(`⚠️ "${IMAGE_COLUMN_NAME}" column not found. Will create it if needed.`);
+            }
+            
+            setStatus(`CSV loaded: ${rowCount} rows ready for processing.`);
+            updateProcessButton();
+          },
+          error: (error) => {
+            setStatus('Error reading CSV: ' + error.message);
+            csvFileInfo.classList.remove('has-file');
+            csvData = null;
+            updateProcessButton();
+          }
+        });
+      } catch (err) {
+        setStatus('Error reading CSV file: ' + err.message);
+        csvFileInfo.classList.remove('has-file');
+        csvData = null;
+        updateProcessButton();
+      }
+    });
+
+    // Image folder selection
+    selectFolderBtn.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (!e.target.files || !e.target.files.length) {
+        setStatus('No folder selected.');
+        return;
+      }
+
+      const files = Array.from(e.target.files).filter(isImageFile);
       files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
       if (!files.length) {
         setStatus('No image files found in the selected folder.');
+        imageFolderInfo.classList.remove('has-file');
+        imageFiles = [];
+        updateProcessButton();
         return;
       }
 
-      copyBtn.disabled = true;
-      downloadTxtBtn.disabled = true;
-      outputEl.value = '';
+      imageFiles = files;
+      imageFolderInfo.textContent = `✓ ${files.length} images selected`;
+      imageFolderInfo.classList.add('has-file');
+      setStatus(`${files.length} images ready for upload.`);
+      updateProcessButton();
+    });
+
+    // Process CSV and images
+    processBtn.addEventListener('click', async () => {
+      if (!csvData || imageFiles.length === 0) {
+        setStatus('Please upload both CSV and images.');
+        return;
+      }
+
+      processBtn.disabled = true;
+      downloadCsvBtn.disabled = true;
+      clearOutput();
       setProgress(0, 1);
 
-      const total = files.length;
+      const totalImages = imageFiles.length;
+      const totalRows = csvData.length;
+      
+      appendOutput(`Processing ${totalImages} images for ${totalRows} CSV data rows...`);
+      appendOutput(`Mapping: 1st image → Row 2 (Item 1), 2nd image → Row 3 (Item 2), etc.`);
+      
+      // Determine target column name for display
+      const displayColumnName = imageColumnIndex !== null 
+        ? csvHeaders[imageColumnIndex] 
+        : `"${IMAGE_COLUMN_NAME}" (will create)`;
+      appendOutput(`Image column: ${displayColumnName}`);
+      appendOutput('');
+
+      if (totalImages > totalRows) {
+        appendOutput(`⚠️ WARNING: More images (${totalImages}) than CSV rows (${totalRows}). Extra images will be ignored.`);
+      } else if (totalImages < totalRows) {
+        appendOutput(`⚠️ WARNING: Fewer images (${totalImages}) than CSV rows (${totalRows}). Some rows will not have images.`);
+      }
+
+      setStatus(`Uploading ${totalImages} images to Litterbox (24h)…`);
+
+      const imageUrls = [];
       let uploaded = 0;
-      const links = [];
 
-      setStatus(`Uploading ${total} images to Litterbox (24h)…`);
-
-      for (const file of files) {
+      // Upload images
+      for (let i = 0; i < totalImages; i++) {
+        const file = imageFiles[i];
         try {
-          setStatus(`Uploading: ${file.name}`);
+          setStatus(`Uploading ${i + 1}/${totalImages}: ${file.name}`);
           const url = await uploadFileToLitterbox(file);
-          links.push(url);
+          imageUrls.push(url);
+          appendOutput(`✓ ${i + 1}/${totalImages}: ${file.name} → ${url}`);
         } catch (err) {
           console.error('Upload failed for', file.name, err);
-          links.push(`# ERROR uploading ${file.name}`);
+          imageUrls.push('');
+          appendOutput(`✗ ${i + 1}/${totalImages}: ERROR uploading ${file.name}`);
         }
         uploaded += 1;
-        setProgress(uploaded, total);
+        setProgress(uploaded, totalImages);
       }
 
-      outputEl.value = links.join('\n');
-      copyBtn.disabled = links.length === 0;
-      downloadTxtBtn.disabled = links.length === 0;
-      setStatus(`Done. Uploaded ${total} images. Output ready to copy.`);
-    }
+      appendOutput('');
+      appendOutput('Applying image URLs to CSV...');
 
-    // Open folder picker
-    selectFolderBtn.addEventListener('click', () => {
-      fileInput.value = ''; // reset so same folder can be chosen repeatedly
-      fileInput.click();
-    });
+      // Determine which column to use for images
+      // Whatnot CSV uses "Image URL 1" as the standard column name
+      let targetColumnName;
 
-    // When a folder is selected
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files && e.target.files.length) {
-        handleFiles(e.target.files);
+      if (imageColumnIndex !== null) {
+        // Use the existing image column
+        targetColumnName = csvHeaders[imageColumnIndex];
+        appendOutput(`Using existing column: "${targetColumnName}"`);
       } else {
-        setStatus('No folder selected.');
+        // Try to find existing column with different casing or similar name
+        const existingIndex = csvHeaders.findIndex(h => {
+          const lowerH = (h || '').toLowerCase().trim();
+          return IMAGE_COLUMN_NAMES.includes(lowerH) || 
+                 lowerH === IMAGE_COLUMN_NAME.toLowerCase();
+        });
+        
+        if (existingIndex >= 0) {
+          targetColumnName = csvHeaders[existingIndex];
+          appendOutput(`Found image column: "${targetColumnName}"`);
+          imageColumnIndex = existingIndex; // Update for consistency
+        } else {
+          // Add "Image URL 1" column (Whatnot standard)
+          targetColumnName = IMAGE_COLUMN_NAME;
+          csvHeaders.push(targetColumnName);
+          imageColumnIndex = csvHeaders.length - 1; // Update index for consistency
+          appendOutput(`Created new column: "${targetColumnName}"`);
+        }
       }
+
+      // Apply image URLs to CSV rows
+      // Ensure all rows have the target column
+      for (let i = 0; i < totalRows; i++) {
+        if (!csvData[i]) {
+          csvData[i] = {};
+        }
+      }
+
+      let imagesApplied = 0;
+      const rowsToProcess = Math.min(totalRows, imageUrls.length);
+      for (let i = 0; i < rowsToProcess; i++) {
+        if (imageUrls[i]) {
+          csvData[i][targetColumnName] = imageUrls[i];
+          imagesApplied++;
+        }
+      }
+
+      appendOutput(`✓ Applied ${imagesApplied} image URLs to CSV`);
+      appendOutput('');
+      appendOutput('Processing complete! Click "Download Completed CSV" to save your file.');
+
+      setStatus(`Done. Applied ${imagesApplied} image URLs to ${totalRows} CSV rows.`);
+      processBtn.disabled = false;
+      downloadCsvBtn.disabled = false;
     });
 
-    // Copy output
-    copyBtn.addEventListener('click', async () => {
-      const text = outputEl.value;
-      if (!text.trim()) return;
+    // Download completed CSV
+    downloadCsvBtn.addEventListener('click', () => {
+      if (!csvData || !csvHeaders) {
+        setStatus('No processed CSV available.');
+        return;
+      }
+
       try {
-        await navigator.clipboard.writeText(text);
-        setStatus('Output copied to clipboard.');
+        // Convert back to CSV using PapaParse
+        // Preserve all columns and maintain CSV format
+        const csv = Papa.unparse(csvData, {
+          columns: csvHeaders,
+          header: true,
+          quotes: true // Quote fields that contain commas or special characters
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'whatnot_inventory_with_images.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        setStatus('Downloaded whatnot_inventory_with_images.csv');
+        appendOutput('✓ CSV downloaded successfully');
       } catch (err) {
-        console.error('Clipboard error:', err);
-        setStatus('Could not access clipboard. You may need to copy manually.');
+        console.error('Download error:', err);
+        setStatus('Error generating CSV download.');
       }
-    });
-
-    // Download .txt
-    downloadTxtBtn.addEventListener('click', () => {
-      const text = outputEl.value;
-      if (!text.trim()) return;
-
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'uploaded_image_links.txt';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setStatus('Downloaded uploaded_image_links.txt');
     });
   </script>
 </body>
